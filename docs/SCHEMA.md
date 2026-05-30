@@ -4,8 +4,9 @@
 > Toda migration → atualizar este arquivo no MESMO commit (pre-commit hook bloqueia se não).
 
 ## Status
-- **Migrations implementadas:** nenhuma ainda (Fase 1 cria as tabelas).
-- Abaixo: schema-alvo definido na spec. Vira realidade na Fase 1.
+- **Migrations implementadas:** `001 initial_schema` — cria as 6 tabelas + índices. Espelhada TS (`packages/mcp-server/src/db/migrations.ts`) + Python (`packages/ingestion/src/qa_memory/db/migrations.py`).
+- Runner: tabela de controle `schema_migrations(version PK, name, applied_at)`; aplica pendentes (version > max aplicada) em transação; idempotente.
+- Conexão: FK ON sempre; WAL p/ DB em arquivo. TS `openDb(path)` / Py `connect(path)`. `:memory:` p/ testes.
 
 ## Tabelas (alvo)
 
@@ -86,6 +87,11 @@ Vetores p/ similarity search local.
 | vector | BLOB NOT NULL | float array serializado |
 | model | TEXT NOT NULL | |
 | created_at | TEXT NOT NULL | |
+
+## Índices
+- `idx_rules_behavior` → rules(behavior_id)
+- `idx_incidents_behavior` → incidents(behavior_id)
+- `idx_embeddings_entity` → embeddings(entity_type, entity_id)
 
 ## Modelo de confiança (confidence)
 | origem | confidence inicial | qa_override |

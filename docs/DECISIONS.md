@@ -38,3 +38,15 @@
 - **Context:** Usuário quer usar conhecimento do produto do trabalho, mas não pode expor nada no repo (potencialmente público).
 - **Decision:** Separação total: repo só código/docs/exemplos neutros. Runtime instance `.qa-memory/` (DB + config real + creds) inteiramente git-ignored. Tokens só via env var. Config versionada só como `config.example.yaml` neutro. Repo pode ser dogfood (qa-memory sobre si mesmo) p/ exemplos.
 - **Consequences:** Nenhum dado de produto entra no git, mesmo se o repo virar público. Instância de trabalho roda local, isolada.
+
+## 007 — Migration runner mínimo + schema espelhado inline
+- **Date:** 2026-05-30
+- **Context:** Bloco 1.2 precisa do schema SQLite nos DOIS packages (TS + Py). Sem ORM, sem lib de migration externa (CLAUDE.md: "no unnecessary abstractions", "no new dependency sem checar").
+- **Decision:** Runner próprio em cada package: lista `MIGRATIONS[]` (version, name, sql) + fn `migrate(conn)` que cria `schema_migrations`, aplica pendentes em transação, idempotente. SQL embutido inline como string em cada linguagem (espelho intencional, exigido pelo CLAUDE.md). Conexão helper liga FK ON + WAL. `:memory:` p/ testes.
+- **Consequences:** Zero deps novas. Mudança de schema = editar SQL nos 2 arquivos + `docs/SCHEMA.md` no mesmo commit (hook reforça). Espelho duplicado é custo aceito e explícito.
+
+## 008 — better-sqlite3 ^12 (Node 24) + pnpm allowBuilds
+- **Date:** 2026-05-30
+- **Context:** Máquina roda Node 24.14.1. better-sqlite3 11.x não publica prebuilt p/ Node 24 → install tentava `node-gyp rebuild`, falhava (sem Python/VS build tools no PATH do gyp). pnpm 11.5 também bloqueia install scripts por padrão.
+- **Decision:** Bump better-sqlite3 p/ `^12.2.0` (tem prebuilt Node 24). Habilitar build scripts via `allowBuilds: {better-sqlite3: true, esbuild: true}` em `pnpm-workspace.yaml`.
+- **Consequences:** Install sem toolchain C++. Versão mínima da spec (Node 18) continua compatível em runtime; só o piso de dev subiu. Se baixar Node, prebuilt ainda cobre.

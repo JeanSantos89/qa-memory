@@ -4,8 +4,8 @@
 
 ## Status atual
 - **Fase atual:** Fase 1 — Fundação (em andamento)
-- **Último bloco concluído:** Bloco 1.1 — estrutura de pastas + configs base (mcp-server TS + ingestion Py)
-- **Próximo bloco:** Bloco 1.2 — schema SQLite + migrations nos DOIS packages, com testes (Vitest + pytest)
+- **Último bloco concluído:** Bloco 1.2 — schema SQLite + migrations espelhadas TS+Py + testes (Vitest 5 ✓, pytest 5 ✓, tsc/ruff/mypy ✓)
+- **Próximo bloco:** Fase 2 — vertical slice: MCP server `query_behavior` (mock) + CLI `status`/`list behaviors`
 
 ## Toolchain (instalado nesta máquina)
 - Node 24.14.1 · pnpm 11.5.0 (em `%APPDATA%\npm`)
@@ -14,7 +14,7 @@
 
 ## Roadmap por fases (da spec, faseado)
 - [x] **Fase 0** — Infra auto-healing: docs vivos + hook de bloqueio.
-- [~] **Fase 1** — Fundação: estrutura + configs (✓ 1.1) + schema SQLite + migrations (TS+Py) com testes (1.2). ← agora
+- [~] **Fase 1** — Fundação: estrutura + configs (✓ 1.1) + schema SQLite + migrations (TS+Py) com testes (✓ 1.2). ← praticamente fechada
 - [ ] **Fase 2** — Vertical slice: MCP server `query_behavior` (mock) + CLI `status`/`list behaviors`.
 - [ ] **Fase 3** — Ingestão PDF: base.py + pdf.py + chunker + two-pass extractor (log tokens) + embeddings locais.
 - [ ] **Fase 4** — `query_risk` + `update_rule`/override em linguagem natural.
@@ -33,4 +33,6 @@
 - Git: remote `JeanSantos89/qa-memory` (privado), identidade LOCAL JeanSantos89 / jeansaantos89@gmail.com. Token no GCM.
 - Hooks ativados via `git config core.hooksPath .githooks` (rodar após clone).
 - Projeto pessoal independente — NÃO seguir convenções de organização externas; seguir este repo.
-- Validar TS: `pnpm install && pnpm typecheck` em packages/mcp-server. Validar Py: `uv sync && uv run ruff check` em packages/ingestion.
+- Validar TS: `pnpm install && pnpm typecheck && pnpm test` em packages/mcp-server. Validar Py: `uv sync && uv run ruff check && uv run mypy && uv run pytest` em packages/ingestion.
+- **Tooling gotcha (Node 24):** better-sqlite3 11.x NÃO tem prebuilt p/ Node 24 → tentava compilar e falhava (sem VS build tools). Bumpado p/ `^12.2.0` (prebuilt Node 24 ok). pnpm 11.5 exige `allowBuilds: {pkg: true}` em `pnpm-workspace.yaml` p/ rodar install scripts (better-sqlite3, esbuild).
+- Shell: rodar via PowerShell com PATH prepend (`$env:APPDATA\npm` p/ pnpm, `~/.local/bin` p/ uv). Bash tool mistura PATH do Git → quebra.
