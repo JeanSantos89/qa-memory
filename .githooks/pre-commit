@@ -1,0 +1,57 @@
+#!/bin/sh
+# qa-memory self-healing guard.
+# Blocks a commit when code changed but living docs were not updated.
+# Living docs keep future chats in sync. See CLAUDE.md "Self-healing docs".
+#
+# Emergency bypass:  ALLOW_DOC_SKIP=1 git commit ...
+set -eu
+
+if [ "${ALLOW_DOC_SKIP:-0}" = "1" ]; then
+  echo "pre-commit: ALLOW_DOC_SKIP=1 → skipping living-doc guard." >&2
+  exit 0
+fi
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$staged" ] && exit 0
+
+# Patterns considered "code" (a change here must come with a living-doc update).
+code_re='^packages/|\.ts$|\.tsx$|\.py$|\.sql$|^install\.sh$'
+# Living docs that satisfy the guard.
+doc_re='^docs/|^CLAUDE\.md$'
+# Schema-relevant changes require docs/SCHEMA.md specifically.
+schema_re='schema|migration|\.sql$'
+
+code_changed=$(printf '%s\n' "$staged" | grep -E "$code_re" || true)
+doc_changed=$(printf '%s\n' "$staged"  | grep -E "$doc_re"  || true)
+schema_changed=$(printf '%s\n' "$staged" | grep -Ei "$schema_re" || true)
+schema_doc_staged=$(printf '%s\n' "$staged" | grep -E '^docs/SCHEMA\.md$' || true)
+
+fail=0
+
+if [ -n "$code_changed" ] && [ -z "$doc_changed" ]; then
+  echo "" >&2
+  echo "✗ pre-commit: code changed but NO living doc staged." >&2
+  echo "  Update at least one of: CLAUDE.md, docs/STATE.md, docs/SCHEMA.md, docs/DECISIONS.md" >&2
+  echo "  (typically docs/STATE.md → what this block did + next block)" >&2
+  echo "  Changed code files:" >&2
+  printf '    %s\n' $code_changed >&2
+  fail=1
+fi
+
+if [ -n "$schema_changed" ] && [ -z "$schema_doc_staged" ]; then
+  echo "" >&2
+  echo "✗ pre-commit: schema/migration changed but docs/SCHEMA.md NOT staged." >&2
+  echo "  Schema is mirrored (TS + Python). Update docs/SCHEMA.md in the SAME commit." >&2
+  echo "  Schema-relevant files:" >&2
+  printf '    %s\n' $schema_changed >&2
+  fail=1
+fi
+
+if [ "$fail" = "1" ]; then
+  echo "" >&2
+  echo "  Bypass (rare, explain in commit body): ALLOW_DOC_SKIP=1 git commit ..." >&2
+  echo "" >&2
+  exit 1
+fi
+
+exit 0

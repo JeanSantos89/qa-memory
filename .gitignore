@@ -1,0 +1,39 @@
+# --- qa-memory runtime instance (NEVER commit: holds product knowledge + connection details) ---
+# Ignore the whole instance dir; only a neutral config.example.yaml (tracked elsewhere) is shared.
+.qa-memory/
+# Credentials
+**/google-creds.json
+*.token
+
+# --- Node / TypeScript ---
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.pnpm-store/
+npm-debug.log*
+pnpm-debug.log*
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.uv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+
+# --- Env / secrets ---
+.env
+.env.local
+*.local
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
