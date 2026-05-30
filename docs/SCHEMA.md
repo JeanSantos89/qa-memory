@@ -58,7 +58,7 @@ Histórico de bugs/falhas por behavior.
 | description | TEXT | |
 | severity | TEXT | P0\|P1\|P2\|P3 |
 | source_type | TEXT | jira\|manual\|ci_failure |
-| source_ref | TEXT | ex PROJ-3053, URL |
+| source_ref | TEXT | ex PROJ-123, URL |
 | occurred_at | TEXT | |
 | created_at | TEXT NOT NULL | |
 

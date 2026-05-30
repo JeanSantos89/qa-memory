@@ -50,3 +50,15 @@
 - **Context:** Máquina roda Node 24.14.1. better-sqlite3 11.x não publica prebuilt p/ Node 24 → install tentava `node-gyp rebuild`, falhava (sem Python/VS build tools no PATH do gyp). pnpm 11.5 também bloqueia install scripts por padrão.
 - **Decision:** Bump better-sqlite3 p/ `^12.2.0` (tem prebuilt Node 24). Habilitar build scripts via `allowBuilds: {better-sqlite3: true, esbuild: true}` em `pnpm-workspace.yaml`.
 - **Consequences:** Install sem toolchain C++. Versão mínima da spec (Node 18) continua compatível em runtime; só o piso de dev subiu. Se baixar Node, prebuilt ainda cobre.
+
+## 009 — Vertical slice MCP: query_behavior real (não mock) + CLI + seed dogfood
+- **Date:** 2026-05-30
+- **Context:** Bloco 2.2 fecha a Fase 2. Spec/STATE chamavam `query_behavior` de "mock". A camada repo do 2.1 já fazia busca real LIKE sobre SQLite — não há motivo p/ retornar dado falso.
+- **Decision:** Tool `query_behavior` consome `repo.queryBehavior` (LIKE name+description, exclui deprecated, case-insensitive) — slice real ponta a ponta, não mock. McpServer via stdio (`StdioServerTransport`). CLI `qa-memory` com `status`/`list behaviors`/`seed`. Seed dogfood NEUTRO (qa-memory sobre si mesmo) p/ demo compartilhável. Regras/confidence ficam p/ bloco futuro (não entram nesse slice). `main()` guardado por `process.argv[1] === fileURLToPath(import.meta.url)` p/ não rodar em import (testes). `openDb` cria dir pai p/ DBs em arquivo.
+- **Consequences:** Slice demonstrável: `qa-memory seed` → MCP `query_behavior` retorna dados reais. Sem mock a manter. Embeddings/ranking semântico chegam na Fase 3 (substituem o LIKE). Bin novo `qa-memory` em package.json (além de `qa-memory-mcp`).
+
+## 010 — Auditoria de neutralidade p/ repo público (fix PROJ-3053)
+- **Date:** 2026-05-30
+- **Context:** Usuário perguntou se pode tornar o repo público. CLAUDE.md proíbe chaves de projeto Jira reais. `docs/SCHEMA.md` usava `PROJ-3053` como exemplo de `source_ref` — PROJ é projeto real do trabalho.
+- **Decision:** Auditar todo o histórico (`git log -p` por padrões sensíveis). Único achado: `PROJ-3053` → trocado por `PROJ-123` neutro. Não reescrever histórico (valor não é secreto, só viola neutralidade; custo de filter-repo não se justifica p/ chave de exemplo).
+- **Consequences:** Repo apto a virar público após esse commit. Resto do histórico já limpo (creds/URLs/empresa/cliente ausentes; email pessoal no author é intencional).
