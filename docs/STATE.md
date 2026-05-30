@@ -19,10 +19,16 @@
 - [x] **Fase 2** — Vertical slice: repo+config (✓ 2.1) + MCP server `query_behavior` + CLI `status`/`list behaviors`/`seed` + seed dogfood (✓ 2.2).
 - [x] **Fase 3** — Ingestão PDF: base.py + pdf.py + chunker (✓ 3.1) + two-pass extractor log tokens (✓ 3.2) + embeddings locais (✓ 3.3) + wiring/persistência + CLI ingest (✓ 3.4). Pipeline PDF ponta a ponta completo.
 - [x] **Fase 4** — `query_risk` (✓ 4.1) + `update_rule`/override em linguagem natural (✓ 4.2).
-- [ ] **Fase 5** — Jira, Google Docs, scheduler, Confluence/Notion/HAR, `suggest_tests`, install.sh, README real.
+- [ ] **Fase 5 (REORDENADA — ver ADR 014)** — ordem por risco→valor:
+  - [ ] **S.1 — Busca semântica** (furo #1, prova a tese): ligar os vetores já gravados; query_behavior/query_risk param de usar só LIKE. ATACAR PRIMEIRO.
+  - [ ] **5.1 — `add_to_memory`** (text | file-path): "jogou, lembrou". Núcleo do Dia 1. (auto-init já pronto.)
+  - [ ] **B — Superfície guiada** (MCP prompts + estado vazio que ensina + skill onboarding). Resolve descoberta SEM UI. Serve técnico e não-técnico.
+  - [ ] **Install script** (furo #2): sem ele o "Dia 0 ~2min" é mentira.
+  - [ ] **Futuro:** subagent automatizado (cuida da memória sozinho) + conectores nativos (Jira/Confluence/Drive) + scheduler. UI dedicada (C) ADIADA — só se não-técnico virar prioridade (usuário avisa).
 
 ## Decisões em aberto
 - Reordenar fontes: usuário tem conhecimento "na cabeça" + Confluence + Jira (não PDF como prioridade real). PDF continua sendo a 1ª fonte IMPLEMENTADA (simples, sem auth, fácil de testar), mas Jira+Confluence (Atlassian, mesmo token) sobem na prioridade logo após. "Na cabeça" → via update_rule (conversa).
+- Modelo de fontes: AGENTE-ALIMENTADO (híbrido). qa-memory NÃO terá conectores próprios no curto prazo — expõe tools de ingestão burras e o agente usa os MCPs que o usuário já tem (Atlassian/Drive) p/ buscar e alimentar. Conectores nativos + sync automático = futuro (subagent). Ver ADR 014.
 
 ## Privacidade / dados (importante)
 - REGRA DE NEUTRALIDADE (ver CLAUDE.md): repo neutro/reutilizável. Nunca commitar nome de empresa, URLs internas, chaves de projeto reais, dados de cliente, credenciais. Quem clonar usa as próprias infos.
