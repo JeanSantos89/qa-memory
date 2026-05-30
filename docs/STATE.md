@@ -4,8 +4,8 @@
 
 ## Status atual
 - **Fase atual:** Fase 3 — Ingestão PDF (EM ANDAMENTO)
-- **Último bloco concluído:** Bloco 3.3 — embeddings locais. `pipeline/embeddings.py`: `pack_vector`/`unpack_vector` (serialização float32 BLOB via stdlib `array`, sem numpy na fronteira de storage) p/ coluna `embeddings.vector`; Protocol `EmbeddingModel`; `LocalEmbeddingModel` (sentence-transformers `all-MiniLM-L6-v2`, dim 384, lazy import → testes sem torch/download; encode([]) curto-circuita antes do load). 31 testes pytest ✓ (roundtrip serialização, fake model, dim), ruff ✓, mypy strict ✓. Dep nova: `sentence-transformers>=3.0` (puxa torch/transformers/scipy/sklearn).
-- **Próximo bloco:** Bloco 3.4 — wiring/persistência: gravar `sources` + `behaviors`/`rules` extraídos + `embeddings` no SQLite (camada repo Py espelhando o que faz sentido do TS) e comando CLI `qa-memory ingest <pdf>` ponta a ponta (extract → chunk → two-pass → embed → persist, com checksum p/ não reprocessar). Componentes 3.1–3.3 são as peças puras; 3.4 conecta tudo.
+- **Último bloco concluído:** Bloco 3.4 — wiring/persistência + CLI ingest. `config.py` (`resolve_db_path`, env `QA_MEMORY_DB` ou default `.qa-memory/qa-memory.db`, espelha config.ts). `db/repo.py`: `find_source_by_checksum` (guard) + `insert_source`/`insert_behavior` (confirmed_by_qa=0, source_ids JSON) /`insert_rule` (confidence 0.6, mid 0.5–0.8) /`insert_embedding` (vector BLOB). `pipeline/ingest.py`: `ingest_doc(conn, doc, extractor, embed_model)` → checksum-skip → chunk → two-pass → embed behaviors (batch) → persist em transação; retorna `IngestReport` (counts+tokens+budget_exhausted). `cli.py`: typer `app` com `ingest <pdf>` (deps reais: PdfSource+AnthropicClient+LocalEmbeddingModel) + `status` (path+counts). 35 testes pytest ✓ (4 novos: persist ponta a ponta com fakes, link source/embedding BLOB, checksum-skip sem dup, config), ruff ✓, mypy strict ✓.
+- **Próximo bloco:** Fase 4 — `query_risk` + `update_rule`/override em linguagem natural (MCP, lado TS). Alternativa de prioridade (ver decisões em aberto): subir Jira+Confluence como próximas fontes ingeridas (Atlassian, mesmo token) antes da Fase 4.
 
 ## Toolchain (instalado nesta máquina)
 - Node 24.14.1 · pnpm 11.5.0 (em `%APPDATA%\npm`)
@@ -16,7 +16,7 @@
 - [x] **Fase 0** — Infra auto-healing: docs vivos + hook de bloqueio.
 - [x] **Fase 1** — Fundação: estrutura + configs (✓ 1.1) + schema SQLite + migrations (TS+Py) com testes (✓ 1.2).
 - [x] **Fase 2** — Vertical slice: repo+config (✓ 2.1) + MCP server `query_behavior` + CLI `status`/`list behaviors`/`seed` + seed dogfood (✓ 2.2).
-- [~] **Fase 3** — Ingestão PDF: base.py + pdf.py + chunker (✓ 3.1) + two-pass extractor log tokens (✓ 3.2) + embeddings locais (✓ 3.3). Falta wiring/persistência + CLI ingest (3.4).
+- [x] **Fase 3** — Ingestão PDF: base.py + pdf.py + chunker (✓ 3.1) + two-pass extractor log tokens (✓ 3.2) + embeddings locais (✓ 3.3) + wiring/persistência + CLI ingest (✓ 3.4). Pipeline PDF ponta a ponta completo.
 - [ ] **Fase 4** — `query_risk` + `update_rule`/override em linguagem natural.
 - [ ] **Fase 5** — Jira, Google Docs, scheduler, Confluence/Notion/HAR, `suggest_tests`, install.sh, README real.
 
