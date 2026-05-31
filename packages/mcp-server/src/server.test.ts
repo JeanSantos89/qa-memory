@@ -4,6 +4,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { openDb } from "./db/index.js";
 import { insertBehavior } from "./repo/behaviors.js";
 import { insertRule } from "./repo/rules.js";
+import { insertIncident } from "./repo/incidents.js";
 import type { Embedder } from "./embedder.js";
 import type { Ingester, IngestResult } from "./ingester.js";
 import type { Assessor, ImpactAnalysis } from "./assessor.js";
@@ -12,10 +13,11 @@ import { createServer } from "./server.js";
 const noEmbed: Embedder = { embed: () => Promise.resolve(null) };
 
 // Records the last assess call so tests can assert routing.
-function spyAssessor(result: ImpactAnalysis): Assessor & { last?: string } {
-  const spy: Assessor & { last?: string } = {
-    assess(change) {
+function spyAssessor(result: ImpactAnalysis): Assessor & { last?: string; lastVector?: number[] | null } {
+  const spy: Assessor & { last?: string; lastVector?: number[] | null } = {
+    assess(change, vector) {
       spy.last = change;
+      spy.lastVector = vector;
       return result;
     },
   };
@@ -31,11 +33,24 @@ const okAnalysis: ImpactAnalysis = {
   tokens: 0,
 };
 
-// Records the last ingestText call so tests can assert routing.
-function spyIngester(result: IngestResult): Ingester & { last?: { text: string; label: string; sourceType: string } } {
-  const spy: Ingester & { last?: { text: string; label: string; sourceType: string } } = {
+// Records the last ingest call (any source) so tests can assert routing.
+type IngestCall =
+  | { kind: "text"; text: string; label: string; sourceType: string }
+  | { kind: "path"; path: string; label?: string }
+  | { kind: "url"; url: string; label?: string };
+
+function spyIngester(result: IngestResult): Ingester & { last?: IngestCall } {
+  const spy: Ingester & { last?: IngestCall } = {
     ingestText(text, opts) {
-      spy.last = { text, ...opts };
+      spy.last = { kind: "text", text, ...opts };
+      return result;
+    },
+    ingestPath(path, opts) {
+      spy.last = { kind: "path", path, ...opts };
+      return result;
+    },
+    ingestUrl(url, opts) {
+      spy.last = { kind: "url", url, ...opts };
       return result;
     },
   };
@@ -162,6 +177,109 @@ describe("update_rule tool over MCP", () => {
   });
 });
 
+describe("record_incident tool over MCP", () => {
+  it("is listed", async () => {
+    const client = await connectedClient();
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name)).toContain("record_incident");
+  });
+
+  it("records an incident against the single matching behavior", async () => {
+    const client = await connectedClient();
+    const res = (await client.callTool({
+      name: "record_incident",
+      arguments: { behavior: "authenticate", title: "Lockout bypassed via API", severity: "P0", source_ref: "PROJ-123" },
+    })) as { content: Array<{ text: string }>; structuredContent?: { ok: boolean; incident_id: string } };
+    expect(res.structuredContent?.ok).toBe(true);
+    expect(res.structuredContent?.incident_id).toBeTruthy();
+    expect(res.content[0]?.text).toContain("Lockout bypassed via API");
+  });
+
+  it("refuses when the behavior text matches nothing", async () => {
+    const client = await connectedClient();
+    const res = (await client.callTool({
+      name: "record_incident",
+      arguments: { behavior: "zzz-nope", title: "x" },
+    })) as { structuredContent?: { ok: boolean } };
+    expect(res.structuredContent?.ok).toBe(false);
+  });
+
+  it("a recorded incident raises the risk score and shows up in query_risk", async () => {
+    const db = openDb(":memory:");
+    const bid = insertBehavior(db, {
+      name: "Coupon redemption",
+      description: "Applies a discount coupon at checkout",
+      criticality: "P3",
+      confirmed_by_qa: true,
+    });
+    insertRule(db, { behavior_id: bid, rule_text: "One coupon per order", confidence: 1.0, qa_override: true });
+    insertIncident(db, { behavior_id: bid, title: "Double coupon stacking", severity: "P1" });
+    const server = createServer(db, noEmbed, spyIngester({ ok: true, message: "ok" }), spyAssessor(okAnalysis));
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test", version: "0.0.0" });
+    await Promise.all([server.connect(st), client.connect(ct)]);
+
+    const res = (await client.callTool({
+      name: "query_risk",
+      arguments: { query: "coupon" },
+    })) as {
+      content: Array<{ text: string }>;
+      structuredContent?: { reasons: string[]; incidents: Array<{ title: string }> };
+    };
+    expect(res.content[0]?.text).toContain("broke: Double coupon stacking");
+    expect(res.structuredContent?.reasons.some((r) => r.includes("already broke"))).toBe(true);
+    expect(res.structuredContent?.incidents[0]?.title).toBe("Double coupon stacking");
+  });
+});
+
+describe("map_area + query_risk by path", () => {
+  it("map_area is listed", async () => {
+    const client = await connectedClient();
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name)).toContain("map_area");
+  });
+
+  it("maps a glob to a behavior, then query_risk resolves a matching path via the area", async () => {
+    const client = await connectedClient(); // seeds "Login auth" (P0) + a rule
+    const mapped = (await client.callTool({
+      name: "map_area",
+      arguments: { file_pattern: "auth/**/*.ts", behaviors: ["authenticate"] },
+    })) as { structuredContent?: { ok: boolean; behavior_ids: string[] } };
+    expect(mapped.structuredContent?.ok).toBe(true);
+
+    const res = (await client.callTool({
+      name: "query_risk",
+      arguments: { query: "auth/login/page.ts" },
+    })) as {
+      content: Array<{ text: string }>;
+      structuredContent?: { level: string; resolvedVia: string };
+    };
+    expect(res.content[0]?.text).toContain("resolved via mapped area");
+    expect(res.content[0]?.text).toContain("Login auth");
+    expect(res.structuredContent?.resolvedVia).toBe("area");
+    expect(res.structuredContent?.level).toBe("high");
+  });
+
+  it("map_area refuses when a behavior text matches nothing", async () => {
+    const client = await connectedClient();
+    const res = (await client.callTool({
+      name: "map_area",
+      arguments: { file_pattern: "x/*.ts", behaviors: ["zzz-nope"] },
+    })) as { structuredContent?: { ok: boolean } };
+    expect(res.structuredContent?.ok).toBe(false);
+  });
+
+  it("a path with no mapped area falls back to semantic/text search", async () => {
+    const client = await connectedClient();
+    const res = (await client.callTool({
+      name: "query_risk",
+      arguments: { query: "unmapped/path.ts" }, // path-like, no area, no lexical hit
+    })) as { structuredContent?: { resolvedVia: string; level: string } };
+    expect(res.structuredContent?.resolvedVia).toBe("search");
+    expect(res.structuredContent?.level).toBe("unknown");
+  });
+});
+
 describe("add_to_memory tool over MCP", () => {
   it("routes text + label + source_type to the ingester and reports success", async () => {
     const spy = spyIngester({ ok: true, message: "ingested checkout: 3 behaviors" });
@@ -174,10 +292,52 @@ describe("add_to_memory tool over MCP", () => {
     expect(res.structuredContent?.ok).toBe(true);
     expect(res.content[0]?.text).toContain("3 behaviors");
     expect(spy.last).toEqual({
+      kind: "text",
       text: "Checkout locks the cart on payment",
       label: "Checkout",
       sourceType: "confluence",
     });
+  });
+
+  it("routes a `path` to ingestPath", async () => {
+    const spy = spyIngester({ ok: true, message: "ingested spec.pdf: 2 behaviors" });
+    const client = await connectedClient(spy);
+    const res = (await client.callTool({
+      name: "add_to_memory",
+      arguments: { path: "/docs/spec.pdf", label: "Spec" },
+    })) as { structuredContent?: { ok: boolean } };
+    expect(res.structuredContent?.ok).toBe(true);
+    expect(spy.last).toEqual({ kind: "path", path: "/docs/spec.pdf", label: "Spec" });
+  });
+
+  it("routes a `url` to ingestUrl", async () => {
+    const spy = spyIngester({ ok: true, message: "ingested page: 1 behavior" });
+    const client = await connectedClient(spy);
+    const res = (await client.callTool({
+      name: "add_to_memory",
+      arguments: { url: "https://example.com/policy" },
+    })) as { structuredContent?: { ok: boolean } };
+    expect(res.structuredContent?.ok).toBe(true);
+    expect(spy.last).toEqual({ kind: "url", url: "https://example.com/policy", label: undefined });
+  });
+
+  it("refuses when more than one source is given", async () => {
+    const client = await connectedClient();
+    const res = (await client.callTool({
+      name: "add_to_memory",
+      arguments: { text: "x", url: "https://example.com" },
+    })) as { content: Array<{ text: string }>; structuredContent?: { ok: boolean } };
+    expect(res.structuredContent?.ok).toBe(false);
+    expect(res.content[0]?.text).toContain("exactly ONE");
+  });
+
+  it("refuses when no source is given", async () => {
+    const client = await connectedClient();
+    const res = (await client.callTool({
+      name: "add_to_memory",
+      arguments: {},
+    })) as { structuredContent?: { ok: boolean } };
+    expect(res.structuredContent?.ok).toBe(false);
   });
 
   it("surfaces ingestion failure (e.g. missing API key) without throwing", async () => {
@@ -223,6 +383,19 @@ describe("analyze_impact tool over MCP", () => {
     expect(res.structuredContent?.ok).toBe(true);
     expect(res.structuredContent?.conflicts[0]?.rule).toBe("no free cancel after accept");
     expect(res.structuredContent?.tokens).toBe(120);
+  });
+
+  it("forwards the warm embedding vector to the assessor (ADR 026)", async () => {
+    const spy = spyAssessor(okAnalysis);
+    const vecEmbedder: Embedder = { embed: () => Promise.resolve([0.1, 0.2, 0.3]) };
+    const db = openDb(":memory:");
+    const server = createServer(db, vecEmbedder, spyIngester({ ok: true, message: "ok" }), spy);
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test", version: "0.0.0" });
+    await Promise.all([server.connect(st), client.connect(ct)]);
+
+    await client.callTool({ name: "analyze_impact", arguments: { change: "x" } });
+    expect(spy.lastVector).toEqual([0.1, 0.2, 0.3]);
   });
 
   it("surfaces analysis failure (e.g. LLM/subprocess error) without throwing", async () => {

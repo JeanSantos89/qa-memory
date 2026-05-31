@@ -3,7 +3,42 @@
 > Living doc. Updated every block, same commit. New chat reads this to know where to continue.
 
 ## Status atual
-- **Fase atual:** Fase 5 CONCLUÍDA — `analyze_impact` (ADR 021) fecha o salto memória-pesquisável → copiloto de QA, validado ao vivo com fonte real + teto confirmado (qwen2.5:14b). **Roadmap dos próximos blocos DEFINIDO** (ver seção "PRÓXIMOS BLOCOS"): Bloco 6 incidents-no-risco (próximo, alto valor/baixo custo) → 7 areas → 8 roteamento de fonte → 9 i18n → 10 perf do assess.
+- **Fase atual:** **ROADMAP DE INFRA FECHADO — Blocos 6–10 CONCLUÍDOS.** 6 (incidents, ADR 022) + 7 (areas, ADR 023) + 8 (fonte file/URL, ADR 024) + 9 (i18n, ADR 025) + 10 (perf assess, ADR 026). Fase 5 antes (`analyze_impact`, ADR 021). **NADA commitado nesta sessão (decisão do usuário: sem commit) — 5 blocos uncommitted na working tree.** Próximo trabalho = não-infra (ver "Futuro"): subagent memory-keeper, conectores nativos, embeddings de rules/incidents, UI. Pedir prioridade ao usuário.
+- **TESTES no fim da sessão:** 83 Vitest ✓ / 65 pytest ✓ / ruff/mypy/typecheck ✓.
+- **VALIDAÇÕES AO VIVO FEITAS (2026-05-31, Ollama llama3.1 + qwen2.5:14b, instância tmp):** TODAS passaram. B6: `record_incident`→`query_risk` mostra `⚠ broke:` + razão `+0.30` no score. B7: `query_risk("checkout/pay.ts")`→`[resolved via mapped area]` (path resolveu via glob antes do semântico). B8: `ingest-url example.com` (fetch real, 102 tok) + `ingest-file .md` (roteou p/ texto, 1 behavior). B9: `QA_MEMORY_LANG=pt-BR`→moldura toda em PT (`Risco`/`o que já quebrou`/`PODE QUEBRAR`/`CONFLITOS`/`quebrou:`/`inferida`). B10: `analyze_impact` via MCP→embedder quente subiu, vetor injetado, ponta-a-ponta OK.
+- **ACHADO AO VIVO — GAP CROSS-IDIOMA na retrieval (candidato a bloco futuro):** `analyze_impact` com a mudança em PORTUGUÊS sobre regras gravadas em INGLÊS voltou `conflicts: (nenhum)` + `0 regras relacionadas` — ERRADO (existe `No combining with loyalty discount`). Causa: cosseno baixo entre idiomas + LIKE não casa → retrieval traz 0 → LLM não tem o que confrontar. PROVADO que a mecânica está certa: a MESMA mudança EM INGLÊS retornou o conflito exato (3 regras, 428 tok). NÃO é regressão dos blocos 6–10; é limite da retrieval quando idioma da consulta ≠ idioma da memória. Mitigações possíveis (futuro): embedder multilíngue, normalizar idioma na ingestão/consulta, ou traduzir a query antes do retrieve.
+
+## Último bloco concluído — perf do assess: reusar embedder quente (ADR 026, Bloco 10)
+- **O QUÊ:** `assess` deixou de carregar o modelo de embedding frio a cada chamada via MCP. O servidor embeda a mudança com o daemon QUENTE (ADR 020) e injeta o vetor no subprocess.
+- **COMO:** Python `retrieve_related`/`analyze_impact` aceitam `precomputed_vector` (e `embed_model` opcional); CLI `assess` lê stdin como texto OU `{change,vector?}` JSON. TS `Assessor.assess(change, vector?)`; tool `analyze_impact` virou async (`await embedder.embed` → passa vetor). Degrada p/ frio se embedder null. SEM dep/schema.
+- **TESTES:** +1 pytest (encode nunca chamado com vetor) + 1 Vitest (vetor repassado). **83 Vitest ✓ / 65 pytest ✓.**
+
+## Bloco concluído antes — i18n da camada de apresentação (ADR 025, Bloco 9)
+- **O QUÊ:** moldura de apresentação (era hardcoded EN) agora segue `QA_MEMORY_LANG` (default en, pt-BR alvo). Conteúdo já seguia o idioma da entrada; faltava a moldura.
+- **COMO:** `i18n.ts` (`Labels` interface + tabelas EN/PT_BR + `normalizeLang` + `getLabels(env)`, zero dep). `risk.ts.computeRisk(..., labels)` — todas as `reasons[]` localizadas (puro/injetável). `server.ts` (`const L`) localiza query_risk/analyze_impact/query_behavior.
+- **DÉBITO RESTANTE (registrado no ADR 025):** `prompts.ts` + `cli.ts` seguem EN (superfícies de menor tráfego) — 2ª passada se pt-BR virar uso real.
+- **TESTES:** 4 i18n + 2 risk (pt-BR). **82 Vitest ✓ / typecheck ✓.** Python intacto.
+
+## Bloco concluído antes — roteamento de fonte: file-path + URL (ADR 024, Bloco 8)
+- **O QUÊ:** `add_to_memory` deixou de aceitar só texto — agora `text?`/`path?`/`url?` (exatamente uma). Caminho local roteia por extensão (.pdf→PdfSource, resto→texto); URL pública faz fetch server-side stdlib.
+- **COMO:** Python `sources/url.py` (UrlSource, urllib+HTMLParser, ZERO dep) + `sources/router.py` (`source_for_path`) + CLI `ingest-file`/`ingest-url` (tail compartilhado `_ingest_and_report`). TS `ingester.ts` (base cmd + subcomando por chamada, `ingestPath`/`ingestUrl`) + `add_to_memory` exige 1 fonte. SCHEMA `sources.type` += `file`/`url` (sem migration).
+- **TESTES:** 4 router + 3 url (pytest) + 5 Vitest. **76 Vitest ✓ / 64 pytest ✓ / ruff/mypy/typecheck ✓.** Fetch real = run manual.
+- **RECON multi-agent feito (2026-05-31) p/ blocos 8/9/10** (resumo, evita re-explorar):
+  - **Bloco 8 (fonte):** `urllib` JÁ usado no OllamaClient (`pipeline/llm.py`) → fetch de URL pública SEM dep. Sources Python: `base.py` (`Source`ABC→`ExtractedDoc`), `text.py` (TextSource, NÃO exportado no `__init__`), `pdf.py` (PdfSource via `Path`). CLI typer `ingest`(pdf)/`ingest-text`(stdin `-`). TS `ingester.ts` passa texto por stdin; `add_to_memory` (server.ts) só tem `text`/`label?`/`source_type?` hoje. Plano: roteador por extensão (.pdf→Pdf, .txt/.md→Text) + UrlSource(urllib) + args `path?`/`url?`.
+  - **Bloco 9 (i18n):** ~80 strings hardcoded EN em 4 arquivos: `risk.ts` (6 reasons), `server.ts` (~25: "Risk:", "MAY BREAK", "WATCH WHEN TESTING", "CONFLICTS", "broke:", erros), `prompts.ts` (~20), `cli.ts` (~8). Plano: módulo de labels + `QA_MEMORY_LANG` (default en, pt-BR 1º alvo). As strings novas do Bloco 6/7 (`broke:`, `resolved via mapped area`) entram nesse débito — esperado.
+  - **Bloco 10 (perf assess):** daemon quente = `embed_serve.py`+`PersistentEmbedder` (embedder.ts). Frio mora em `impact.py:retrieve_related()` (`embed_model.encode([q])`). **Recomendação: Opção B** — MCP injeta o vetor já embedado (PersistentEmbedder, ~10ms) e passa pro subprocess `assess` via stdin `{change,vector}`; `analyze_impact()` usa `precomputed_vector` se vier. Mais simples que replicar o protocolo daemon no Python (Opção A).
+
+## Último bloco concluído — areas: path→behaviors via glob nativo (ADR 023, Bloco 7)
+- **O QUÊ:** tabela `areas` (ociosa) ligada. QA passa o CAMINHO do arquivo que vai tocar → `query_risk` resolve os behaviors via área mapeada antes do semântico. Fecha o elo arquivo↔behavior.
+- **COMO:** `repo/areas.ts` (glob NATIVO sem dep — `globToRegExp`: `*`/`**`/`?`, anchored, normaliza `\`→`/`; `behaviorIdsForPath` união dedup). `behaviorsByIds` em behaviors.ts. Tool `map_area` (resolve behaviors por texto único, nunca chuta). `query_risk`: `looksLikePath` → resolve via area, fallback semântico; expõe `resolvedVia` no header+structured. SEM schema, SEM dep.
+- **TESTES:** 7 Vitest areas + 4 Vitest server. **72 Vitest ✓ / typecheck ✓.** Python intacto.
+- **ADIADO:** `analyze_impact` aceitar path → junto do Bloco 8.
+
+## Bloco concluído antes — incidents no risk score (ADR 022, Bloco 6)
+- **O QUÊ:** fecha o gancho do ADR 012. `incidents` existia no schema mas ninguém usava; agora o histórico de falhas (sinal mais forte do QA) soma ao risk score.
+- **COMO:** `repo/incidents.ts` (espelha rules.ts: `insertIncident`/`listIncidentsForBehaviors`, sem gate de confidence). `risk.ts` ganha 3º ingrediente — addend de incidents: peso por severidade (P0=0.3..P3=0.05, default 0.1) × recência (decay binário, janela 90d → metade), soma capada em 0.3, TODO incident no `reasons[]` (incl. "(capped)"). `computeRisk(behaviors, rules, incidents=[], now)` puro/testável. Tool MCP `record_incident` (espelha update_rule: resolve behavior por texto único, NUNCA chuta). `query_risk` lista incidents (`⚠ broke: ...`) + inclui no structuredContent. SEM mudança de schema, sem dep.
+- **TESTES:** 4 Vitest risk + 4 Vitest server. **61 Vitest ✓ / typecheck ✓.** Python intacto (não tocado).
+- **PENDENTE p/ futuro:** extração de incidents via Jira/CI = Bloco 8 (roteamento de fonte); embeddings de incidents fora ainda. **NÃO commitado ainda nesta sessão.**
 - **USER STORIES rodadas ao vivo via MCP real + Ollama (2026-05-30):**
   - (1) **Dogfood (Carla, migrations, inglês):** instância vazia → `query_risk` ensinou a alimentar (Bloco B provou valor) → `add_to_memory` (spec EN) extraiu 3 behaviors+7 rules em ~59s → `query_risk` devolveu Risk HIGH + 3 casos de teste acionáveis + efeito colateral (schema sync) que ela não pediu. 2ª query 0.0s (embedder quente). **Loop fechou.**
   - (2) **Delivery (Bruno, cancelamento, PORTUGUÊS):** alimentou 7 regras de negócio reais não-técnicas em PT → LLM extraiu 7 behaviors+11 rules **em português** (1265 tokens, ~120s) → `query_risk "cancelamento após restaurante aceitar"` → Risk HIGH + todas as regras relacionadas em PT.
@@ -55,25 +90,25 @@
 ## PRÓXIMOS BLOCOS (priorizado — valor/risco, 2026-05-30)
 Ordem pensada p/ maximizar valor de QA por bloco, mantendo a regra "1 bloco = unidade + testes + doc + 1 commit". Cada um é reviewable sozinho.
 
-### Bloco 6 — `incidents` no risco (fechar o loop história→risco) [ALTO valor, baixo custo]
+### Bloco 6 — `incidents` no risco [✅ CONCLUÍDO — ADR 022]
 - **Por quê:** a tabela `incidents` existe no schema mas NINGUÉM a usa (só migrations). O ADR 012 já deixou o gancho: incidents somariam ao risk score. Hoje "o que já quebrou aqui" — o sinal mais forte que um QA tem — é invisível.
 - **Escopo:** (1) TS `repo/incidents.ts` (listar incidents por behavior_id, espelha rules.ts). (2) tool MCP `record_incident` (behavior + título + severity + source_ref opcional; resolve behavior por texto único igual update_rule, NUNCA chuta). (3) `risk.ts` soma addend de incidents (recência/severidade → bônus capado, ecoado em `reasons[]` como todo o resto). (4) `query_risk` passa a exibir incidents do behavior. Testes ambos os lados. ADR 022. SCHEMA já cobre (sem migration).
 - **Cuidado:** score continua transparente — todo incident que mexe no número aparece em `reasons[]`.
 
-### Bloco 7 — `areas` (mapear arquivo/módulo ↔ behavior) [ALTO valor p/ o caso real de QA]
+### Bloco 7 — `areas` (mapear arquivo/módulo ↔ behavior) [✅ CONCLUÍDO — ADR 023]
 - **Por quê:** tabela `areas` (file_pattern glob ↔ behavior_ids) existe e está ociosa. É o elo que falta p/ o fluxo natural: "vou mexer em `checkout/*.ts` → quais behaviors isso toca → qual o risco". Hoje o QA tem que adivinhar o texto da área; com areas ele passa o CAMINHO do arquivo.
 - **Escopo:** (1) `repo/areas.ts` (CRUD mínimo + match glob→behaviors). (2) tool `map_area` (associa file_pattern a behaviors) + `query_risk` aceita um path e resolve via areas antes do fallback semântico. (3) `analyze_impact` também pode receber um path. Testes. ADR 023. SCHEMA já cobre.
 - **Decisão em aberto:** glob match em TS (minimatch já é dep transitiva? checar antes — CLAUDE.md "no new dep sem checar") ou LIKE sobre o pattern.
 
-### Bloco 8 — Roteamento de fonte: file-path + URL (o 5.2 adiado) [MÉDIO valor]
+### Bloco 8 — Roteamento de fonte: file-path + URL [✅ CONCLUÍDO — ADR 024]
 - **Por quê:** `add_to_memory` hoje só aceita texto cru. O agente-alimentado (ADR 014) fica mais natural se aceitar um caminho local (.pdf→PdfSource, .txt/.md→TextSource) e uma URL pública (fetch server-side, token-free).
 - **Escopo:** (1) Python: roteador em sources (extensão→Source). (2) URL: fetch com stdlib (urllib, sem dep) p/ páginas públicas; auth continua sendo responsabilidade do agente (passa texto). (3) tool `add_to_memory` ganha `path?`/`url?` além de `text`. Testes com fakes. ADR 024.
 
-### Bloco 9 — i18n da camada de apresentação [BAIXO/MÉDIO — dívida registrada]
+### Bloco 9 — i18n da camada de apresentação [✅ CONCLUÍDO — ADR 025]
 - **Por quê:** ACHADO/i18n do STATE — `risk.ts`/server.ts têm template hardcoded em inglês (`Risk: HIGH`, labels), independente do idioma do usuário. O conteúdo extraído segue o idioma da entrada (PT→PT ok), mas a moldura não.
 - **Escopo:** extrair strings de apresentação p/ um módulo de labels, detectar/configurar idioma (env `QA_MEMORY_LANG` default en, pt-BR como 1º alvo). Sem schema, sem dep. ADR 025.
 
-### Bloco 10 — Performance do `assess`: reusar embedder quente [BAIXO — otimização]
+### Bloco 10 — Performance do `assess`: reusar embedder quente [✅ CONCLUÍDO — ADR 026]
 - **Por quê:** ADR 021 registrou — `assess` carrega o modelo de embedding FRIO a cada chamada (não usa o daemon quente do query path, ~9s de penalidade). Análoga ao cold-start que o ADR 020 resolveu p/ query.
 - **Escopo:** retrieval do `impact.py` consome o mesmo `embed-serve` quente (ou o MCP injeta o vetor já embedado via o PersistentEmbedder e passa pro subprocess). Medir antes/depois. ADR 026.
 

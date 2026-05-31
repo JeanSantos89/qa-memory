@@ -21,7 +21,9 @@ export interface ImpactAnalysis {
 }
 
 export interface Assessor {
-  assess(change: string): ImpactAnalysis;
+  // `vector` (optional) is the change already embedded by the warm MCP embedder;
+  // passing it lets Python skip its cold embedding load (ADR 026).
+  assess(change: string, vector?: number[] | null): ImpactAnalysis;
 }
 
 // Default: `uv run qa-memory assess`. Override via QA_MEMORY_ASSESS_CMD
@@ -52,12 +54,16 @@ export class PythonAssessor implements Assessor {
     this.cwd = cwd ?? defaultCwd(env);
   }
 
-  assess(change: string): ImpactAnalysis {
+  assess(change: string, vector?: number[] | null): ImpactAnalysis {
     const [cmd, ...base] = assessCommand(this.env);
     if (!cmd) return failed("no assess command configured");
-    // Change goes over stdin ('-') to dodge argv length/escaping limits.
+    // stdin ('-') carries the change. When a warm vector is available we send
+    // {change, vector} JSON so Python skips its cold embedding load; otherwise
+    // plain text (Python accepts both).
+    const input =
+      vector && vector.length > 0 ? JSON.stringify({ change, vector }) : change;
     const res = spawnSync(cmd, [...base, "-"], {
-      input: change,
+      input,
       cwd: this.cwd,
       encoding: "utf8",
       timeout: 300_000,

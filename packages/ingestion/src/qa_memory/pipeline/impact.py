@@ -100,12 +100,17 @@ def _rules_for(conn: sqlite3.Connection, behavior_id: str) -> list[str]:
 def retrieve_related(
     conn: sqlite3.Connection,
     change: str,
-    embed_model: EmbeddingModel,
+    embed_model: EmbeddingModel | None,
     limit: int = RETRIEVAL_LIMIT,
+    precomputed_vector: list[float] | None = None,
 ) -> list[_RelatedBehavior]:
     """Find behaviors related to the proposed change: semantic over behavior
     embeddings (cosine >= floor), backfilled with LIKE matches. Mirrors
     search.ts so analysis sees the same candidates the query tools would.
+
+    If `precomputed_vector` is given (the MCP server embeds the change with its
+    WARM embedder, ADR 020/026), the cold model load here is skipped entirely —
+    `embed_model` may then be None. Otherwise the change is embedded locally.
     """
     q = change.strip()
     if not q:
@@ -124,7 +129,12 @@ def retrieve_related(
     # Semantic candidates — rank latest behavior embedding by cosine.
     ordered_ids: list[str] = []
     meta: dict[str, tuple[str, str]] = {}
-    query_vec = embed_model.encode([q])[0] if q else []
+    if precomputed_vector is not None:
+        query_vec = precomputed_vector
+    elif embed_model is not None:
+        query_vec = embed_model.encode([q])[0]
+    else:
+        query_vec = []
     if len(query_vec) == EMBEDDING_DIM:
         emb_rows = conn.execute(
             """SELECT e.entity_id, e.vector, b.name, b.description
@@ -172,15 +182,17 @@ def analyze_impact(
     conn: sqlite3.Connection,
     change: str,
     client: LLMClient,
-    embed_model: EmbeddingModel,
+    embed_model: EmbeddingModel | None,
     limit: int = RETRIEVAL_LIMIT,
+    precomputed_vector: list[float] | None = None,
 ) -> ImpactAnalysis:
     """Retrieve related rules → ask the LLM to reason about impact → parse.
 
     Deps injected (client + embed_model are Protocols) → unit-testable with
-    fakes, no network/torch/key.
+    fakes, no network/torch/key. Pass `precomputed_vector` to reuse a warm
+    embedding and skip the cold model load (ADR 026).
     """
-    related = retrieve_related(conn, change, embed_model, limit)
+    related = retrieve_related(conn, change, embed_model, limit, precomputed_vector)
     related_rules = [r for b in related for r in b.rules]
 
     resp = client.complete(

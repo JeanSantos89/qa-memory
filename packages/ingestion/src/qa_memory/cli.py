@@ -3,6 +3,8 @@
 Commands:
   ingest <pdf>        extract → chunk → two-pass → embed → persist into SQLite
   ingest-text <text>  ingest raw text (agent-fed content); '-' reads stdin
+  ingest-file <path>  ingest a local file, routed by extension (.pdf else text)
+  ingest-url <url>    fetch a public URL (stdlib, no auth) and ingest its text
   status              show DB path + row counts
   embed <text>        print the float32 embedding vector as JSON (for the MCP query path)
 """
@@ -22,10 +24,31 @@ from qa_memory.pipeline.extractor import TwoPassExtractor
 from qa_memory.pipeline.impact import analyze_impact
 from qa_memory.pipeline.ingest import ingest_doc
 from qa_memory.pipeline.llm import make_llm_client
+from qa_memory.sources.base import ExtractedDoc
 from qa_memory.sources.pdf import PdfSource
+from qa_memory.sources.router import source_for_path
 from qa_memory.sources.text import TextSource
+from qa_memory.sources.url import UrlSource
 
 app = typer.Typer(help="qa-memory ingestion CLI", no_args_is_help=True)
+
+
+def _ingest_and_report(doc: ExtractedDoc, budget: int) -> None:
+    """Shared tail: chunk → two-pass → embed → persist, then echo the report.
+    Used by every ingest command so the pipeline wiring lives in one place."""
+    conn = connect(resolve_db_path())
+    extractor = TwoPassExtractor(make_llm_client(), budget=budget)
+    report = ingest_doc(conn, doc, extractor, LocalEmbeddingModel())
+
+    if report.skipped:
+        typer.echo(f"skipped (already ingested): {doc.label} → source {report.source_id}")
+        return
+    typer.echo(
+        f"ingested {doc.label}: "
+        f"{report.behaviors} behaviors, {report.rules} rules, "
+        f"{report.embeddings} embeddings, {report.tokens} tokens"
+        + (" [budget exhausted]" if report.budget_exhausted else "")
+    )
 
 
 @app.command()
@@ -38,20 +61,7 @@ def ingest(
         typer.secho(f"file not found: {pdf}", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
 
-    doc = PdfSource(pdf).extract()
-    conn = connect(resolve_db_path())
-    extractor = TwoPassExtractor(make_llm_client(), budget=budget)
-    report = ingest_doc(conn, doc, extractor, LocalEmbeddingModel())
-
-    if report.skipped:
-        typer.echo(f"skipped (already ingested): {pdf.name} → source {report.source_id}")
-        return
-    typer.echo(
-        f"ingested {pdf.name}: "
-        f"{report.behaviors} behaviors, {report.rules} rules, "
-        f"{report.embeddings} embeddings, {report.tokens} tokens"
-        + (" [budget exhausted]" if report.budget_exhausted else "")
-    )
+    _ingest_and_report(PdfSource(pdf).extract(), budget)
 
 
 @app.command(name="ingest-text")
@@ -72,19 +82,44 @@ def ingest_text(
         raise typer.Exit(1)
 
     doc = TextSource(raw, label=label, source_type=source_type).extract()
-    conn = connect(resolve_db_path())
-    extractor = TwoPassExtractor(make_llm_client(), budget=budget)
-    report = ingest_doc(conn, doc, extractor, LocalEmbeddingModel())
+    _ingest_and_report(doc, budget)
 
-    if report.skipped:
-        typer.echo(f"skipped (already ingested): {label} → source {report.source_id}")
-        return
-    typer.echo(
-        f"ingested {label}: "
-        f"{report.behaviors} behaviors, {report.rules} rules, "
-        f"{report.embeddings} embeddings, {report.tokens} tokens"
-        + (" [budget exhausted]" if report.budget_exhausted else "")
-    )
+
+@app.command(name="ingest-file")
+def ingest_file(
+    path: Annotated[Path, typer.Argument(help="Local file (.pdf parsed, else text)")],
+    label: Annotated[str | None, typer.Option(help="Human label (defaults to filename)")] = None,
+    budget: Annotated[int, typer.Option(help="Token budget for this run")] = 50_000,
+) -> None:
+    """Ingest a local file, routing by extension: .pdf → PDF parse, else text."""
+    try:
+        source = source_for_path(path, label=label)
+    except FileNotFoundError:
+        typer.secho(f"file not found: {path}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from None
+    _ingest_and_report(source.extract(), budget)
+
+
+@app.command(name="ingest-url")
+def ingest_url(
+    url: Annotated[str, typer.Argument(help="Public URL to fetch and ingest")],
+    label: Annotated[str | None, typer.Option(help="Human label (defaults to the URL)")] = None,
+    budget: Annotated[int, typer.Option(help="Token budget for this run")] = 50_000,
+) -> None:
+    """Fetch a public URL server-side (stdlib, no auth) and ingest its text.
+
+    For private pages, fetch with your own tools and use ingest-text instead."""
+    import urllib.error
+
+    try:
+        doc = UrlSource(url, label=label).extract()
+    except (urllib.error.URLError, OSError) as exc:
+        typer.secho(f"fetch failed: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from None
+    if not doc.text.strip():
+        typer.secho(f"no text extracted from {url}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+    _ingest_and_report(doc, budget)
 
 
 @app.command()
@@ -99,16 +134,40 @@ def assess(
     {"breaks":[...], "watch":[...], "conflicts":[{"rule","why"}], "tokens":N,
      "related_rules":[...]}. Stdout carries ONLY the JSON (noise goes to stderr)
     so the MCP server can parse it from a subprocess. Mirrors `embed`.
+
+    stdin may be either the raw change text, OR a JSON object
+    {"change": str, "vector"?: [float]}. When `vector` is present (the MCP
+    server embeds with its WARM embedder), the cold model load is skipped
+    (ADR 026).
     """
     import sys
 
-    raw = sys.stdin.read() if change == "-" else change
-    if not raw.strip():
+    stdin_raw = sys.stdin.read() if change == "-" else change
+
+    # Accept plain text OR {"change", "vector"?} JSON.
+    text = stdin_raw
+    vector: list[float] | None = None
+    stripped = stdin_raw.strip()
+    if stripped.startswith("{"):
+        try:
+            payload = json.loads(stripped)
+            text = str(payload.get("change", ""))
+            raw_vec = payload.get("vector")
+            if isinstance(raw_vec, list):
+                vector = [float(x) for x in raw_vec]
+        except (json.JSONDecodeError, TypeError, ValueError):
+            text = stdin_raw  # not JSON after all — treat as raw change text
+
+    if not text.strip():
         typer.secho("empty change", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
 
     conn = connect(resolve_db_path())
-    result = analyze_impact(conn, raw, make_llm_client(), LocalEmbeddingModel())
+    # Warm vector supplied → skip the cold embedding model entirely.
+    embed_model = None if vector is not None else LocalEmbeddingModel()
+    result = analyze_impact(
+        conn, text, make_llm_client(), embed_model, precomputed_vector=vector
+    )
     typer.echo(
         json.dumps(
             {

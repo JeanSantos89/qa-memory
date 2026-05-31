@@ -139,6 +139,28 @@ def test_analyze_impact_parses_and_logs_tokens() -> None:
     assert result.related_rules == ["no free cancel after restaurant accepts"]
 
 
+def test_retrieve_uses_precomputed_vector_and_skips_model() -> None:
+    conn = _conn()
+    _seed_behavior(conn, "b1", "Cancellation", "Order cancellation flow",
+                   [("free cancel before accept", 0.9)], _vec(0))
+
+    class BoomEmbed:
+        """Fails if encode() is ever called — proves the warm vector path."""
+
+        name = "boom"
+
+        def encode(self, texts: list[str]) -> list[list[float]]:
+            raise AssertionError("encode() must not be called when a vector is precomputed")
+
+    # Warm vector aligned with b1's slot; embed_model is None entirely.
+    related = retrieve_related(conn, "anything", None, precomputed_vector=_vec(0))
+    assert [b.behavior_id for b in related] == ["b1"]
+
+    # And with a model present, it is NOT used when a vector is given.
+    related2 = retrieve_related(conn, "anything", BoomEmbed(), precomputed_vector=_vec(0))
+    assert [b.behavior_id for b in related2] == ["b1"]
+
+
 def test_analyze_impact_empty_memory_still_runs() -> None:
     conn = _conn()
     llm = FakeLLM({"breaks": [], "watch": ["nothing in memory yet"], "conflicts": []})

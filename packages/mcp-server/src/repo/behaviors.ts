@@ -123,6 +123,20 @@ export function listBehaviorEmbeddings(db: Database): { behavior: Behavior; vect
   });
 }
 
+// Fetches behaviors by id, excluding deprecated. Order follows the given ids
+// (so an area's mapping order is preserved). Unknown ids are skipped.
+export function behaviorsByIds(db: Database, ids: string[]): Behavior[] {
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => "?").join(", ");
+  const rows = db
+    .prepare(
+      `SELECT * FROM behaviors WHERE id IN (${placeholders}) AND status != 'deprecated'`,
+    )
+    .all(...ids) as BehaviorRow[];
+  const byId = new Map(rows.map((r) => [r.id, hydrate(r)]));
+  return ids.map((id) => byId.get(id)).filter((b): b is Behavior => b !== undefined);
+}
+
 // Case-insensitive LIKE over name + description (lexical fallback).
 // Empty query → returns all (non-deprecated). Semantic ranking lives in search.ts.
 export function queryBehavior(

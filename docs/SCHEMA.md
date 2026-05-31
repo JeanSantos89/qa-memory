@@ -67,7 +67,7 @@ Documentos e integrações configuradas.
 | coluna | tipo | notas |
 |--------|------|-------|
 | id | TEXT PK | |
-| type | TEXT NOT NULL | pdf\|google_doc\|jira\|confluence\|notion\|har\|conversation |
+| type | TEXT NOT NULL | pdf\|google_doc\|jira\|confluence\|notion\|har\|conversation\|file\|url |
 | label | TEXT NOT NULL | |
 | source_ref | TEXT NOT NULL | path/URL/ID/query |
 | last_synced | TEXT | |

@@ -11,14 +11,25 @@ export interface IngestResult {
 
 export interface Ingester {
   ingestText(text: string, opts: { label: string; sourceType: string }): IngestResult;
+  // Ingest a local file (routed by extension in Python: .pdf else text).
+  ingestPath(path: string, opts: { label?: string }): IngestResult;
+  // Fetch + ingest a public URL (server-side stdlib fetch, no auth).
+  ingestUrl(url: string, opts: { label?: string }): IngestResult;
 }
 
-// Default: `uv run qa-memory ingest-text`. Override via QA_MEMORY_INGEST_CMD
-// (space-separated) for hosts where uv is not on PATH (documented gotcha).
-function ingestCommand(env: NodeJS.ProcessEnv): string[] {
+// Base command. Default: `uv run qa-memory`; the subcommand (ingest-text /
+// ingest-file / ingest-url) is appended per call. Override the base via
+// QA_MEMORY_INGEST_CMD (space-separated) for hosts where uv is not on PATH.
+// The override may already include `ingest-text` (legacy) — that's stripped so
+// the right subcommand is used.
+function ingestBaseCommand(env: NodeJS.ProcessEnv): string[] {
   const raw = env.QA_MEMORY_INGEST_CMD?.trim();
-  if (raw) return raw.split(/\s+/);
-  return ["uv", "run", "qa-memory", "ingest-text"];
+  if (raw) {
+    const parts = raw.split(/\s+/);
+    if (parts[parts.length - 1] === "ingest-text") parts.pop();
+    return parts;
+  }
+  return ["uv", "run", "qa-memory"];
 }
 
 // uv needs the ingestion package's dir as cwd (else "program not found").
@@ -37,19 +48,40 @@ export class PythonIngester implements Ingester {
     this.cwd = cwd ?? defaultCwd(env);
   }
 
-  ingestText(text: string, opts: { label: string; sourceType: string }): IngestResult {
-    const [cmd, ...base] = ingestCommand(this.env);
+  // Runs `<base> <subcommand> <args>` and normalizes the result. `input` is fed
+  // over stdin (used by ingest-text to dodge argv limits).
+  private run(subcommand: string, args: string[], input?: string): IngestResult {
+    const [cmd, ...base] = ingestBaseCommand(this.env);
     if (!cmd) return { ok: false, message: "no ingest command configured" };
-    // Text goes over stdin ('-') to dodge argv length/escaping limits.
-    const res = spawnSync(
-      cmd,
-      [...base, "-", "--label", opts.label, "--source-type", opts.sourceType],
-      { input: text, cwd: this.cwd, encoding: "utf8", timeout: 180_000 },
-    );
+    const res = spawnSync(cmd, [...base, subcommand, ...args], {
+      input,
+      cwd: this.cwd,
+      encoding: "utf8",
+      timeout: 180_000,
+    });
     if (res.status === 0) {
       return { ok: true, message: (res.stdout || "ingested").trim() };
     }
     const err = (res.stderr || res.stdout || "ingestion failed").trim();
     return { ok: false, message: err };
+  }
+
+  ingestText(text: string, opts: { label: string; sourceType: string }): IngestResult {
+    // Text goes over stdin ('-') to dodge argv length/escaping limits.
+    return this.run(
+      "ingest-text",
+      ["-", "--label", opts.label, "--source-type", opts.sourceType],
+      text,
+    );
+  }
+
+  ingestPath(path: string, opts: { label?: string }): IngestResult {
+    const args = [path, ...(opts.label ? ["--label", opts.label] : [])];
+    return this.run("ingest-file", args);
+  }
+
+  ingestUrl(url: string, opts: { label?: string }): IngestResult {
+    const args = [url, ...(opts.label ? ["--label", opts.label] : [])];
+    return this.run("ingest-url", args);
   }
 }
