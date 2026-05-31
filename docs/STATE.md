@@ -3,7 +3,7 @@
 > Living doc. Updated every block, same commit. New chat reads this to know where to continue.
 
 ## Status atual
-- **Fase atual:** Fase 5 — tool `analyze_impact` (análise de impacto via LLM) CONCLUÍDA (ADR 021). Salto memória-pesquisável → copiloto de QA. Loop de valor já PROVADO ao vivo (2 user stories). Próximo candidato: validar `analyze_impact` ao vivo com Ollama + 5.2 (file-path/PDF routing) ou subagent automatizado.
+- **Fase atual:** Fase 5 CONCLUÍDA — `analyze_impact` (ADR 021) fecha o salto memória-pesquisável → copiloto de QA, validado ao vivo com fonte real + teto confirmado (qwen2.5:14b). **Roadmap dos próximos blocos DEFINIDO** (ver seção "PRÓXIMOS BLOCOS"): Bloco 6 incidents-no-risco (próximo, alto valor/baixo custo) → 7 areas → 8 roteamento de fonte → 9 i18n → 10 perf do assess.
 - **USER STORIES rodadas ao vivo via MCP real + Ollama (2026-05-30):**
   - (1) **Dogfood (Carla, migrations, inglês):** instância vazia → `query_risk` ensinou a alimentar (Bloco B provou valor) → `add_to_memory` (spec EN) extraiu 3 behaviors+7 rules em ~59s → `query_risk` devolveu Risk HIGH + 3 casos de teste acionáveis + efeito colateral (schema sync) que ela não pediu. 2ª query 0.0s (embedder quente). **Loop fechou.**
   - (2) **Delivery (Bruno, cancelamento, PORTUGUÊS):** alimentou 7 regras de negócio reais não-técnicas em PT → LLM extraiu 7 behaviors+11 rules **em português** (1265 tokens, ~120s) → `query_risk "cancelamento após restaurante aceitar"` → Risk HIGH + todas as regras relacionadas em PT.
@@ -49,7 +49,39 @@
   - [x] **5.1 — `add_to_memory` (TEXTO)** — "jogou, lembrou". TextSource + CLI ingest-text + tool MCP via subprocess (stdin). File-path/PDF-routing fica p/ 5.2.
   - [x] **B — Superfície guiada** (ADR 018): MCP prompts `getting_started`+`assess_change` (`prompts.ts`) + estado vazio que ensina (`emptyStateHint` em query_behavior/query_risk). Resolve descoberta SEM UI, sem dep nova. Skill onboarding dedicada NÃO feita (prompts MCP cobrem o caso); reabrir se faltar.
   - [x] **Install script** (furo #2, ADR 019): `scripts/install.ps1`+`.sh` (deps→build→sync→instância→snippet MCP, idempotente). Fix: Python `connect()` cria o dir pai (clone fresco não quebra mais).
-  - [ ] **Futuro:** subagent automatizado (cuida da memória sozinho) + conectores nativos (Jira/Confluence/Drive) + scheduler. UI dedicada (C) ADIADA — só se não-técnico virar prioridade (usuário avisa).
+  - [x] **5.3 — `analyze_impact`** (ADR 021): tool de análise de impacto via LLM (breaks/watch/conflicts ancorados nas regras reais). Story FECHADA — mecanismo provado com fonte real + qualidade confirmada com qwen2.5:14b (teto era o modelo, não a arquitetura).
+  - [ ] **Próximos blocos definidos abaixo (seção PRÓXIMOS BLOCOS).**
+
+## PRÓXIMOS BLOCOS (priorizado — valor/risco, 2026-05-30)
+Ordem pensada p/ maximizar valor de QA por bloco, mantendo a regra "1 bloco = unidade + testes + doc + 1 commit". Cada um é reviewable sozinho.
+
+### Bloco 6 — `incidents` no risco (fechar o loop história→risco) [ALTO valor, baixo custo]
+- **Por quê:** a tabela `incidents` existe no schema mas NINGUÉM a usa (só migrations). O ADR 012 já deixou o gancho: incidents somariam ao risk score. Hoje "o que já quebrou aqui" — o sinal mais forte que um QA tem — é invisível.
+- **Escopo:** (1) TS `repo/incidents.ts` (listar incidents por behavior_id, espelha rules.ts). (2) tool MCP `record_incident` (behavior + título + severity + source_ref opcional; resolve behavior por texto único igual update_rule, NUNCA chuta). (3) `risk.ts` soma addend de incidents (recência/severidade → bônus capado, ecoado em `reasons[]` como todo o resto). (4) `query_risk` passa a exibir incidents do behavior. Testes ambos os lados. ADR 022. SCHEMA já cobre (sem migration).
+- **Cuidado:** score continua transparente — todo incident que mexe no número aparece em `reasons[]`.
+
+### Bloco 7 — `areas` (mapear arquivo/módulo ↔ behavior) [ALTO valor p/ o caso real de QA]
+- **Por quê:** tabela `areas` (file_pattern glob ↔ behavior_ids) existe e está ociosa. É o elo que falta p/ o fluxo natural: "vou mexer em `checkout/*.ts` → quais behaviors isso toca → qual o risco". Hoje o QA tem que adivinhar o texto da área; com areas ele passa o CAMINHO do arquivo.
+- **Escopo:** (1) `repo/areas.ts` (CRUD mínimo + match glob→behaviors). (2) tool `map_area` (associa file_pattern a behaviors) + `query_risk` aceita um path e resolve via areas antes do fallback semântico. (3) `analyze_impact` também pode receber um path. Testes. ADR 023. SCHEMA já cobre.
+- **Decisão em aberto:** glob match em TS (minimatch já é dep transitiva? checar antes — CLAUDE.md "no new dep sem checar") ou LIKE sobre o pattern.
+
+### Bloco 8 — Roteamento de fonte: file-path + URL (o 5.2 adiado) [MÉDIO valor]
+- **Por quê:** `add_to_memory` hoje só aceita texto cru. O agente-alimentado (ADR 014) fica mais natural se aceitar um caminho local (.pdf→PdfSource, .txt/.md→TextSource) e uma URL pública (fetch server-side, token-free).
+- **Escopo:** (1) Python: roteador em sources (extensão→Source). (2) URL: fetch com stdlib (urllib, sem dep) p/ páginas públicas; auth continua sendo responsabilidade do agente (passa texto). (3) tool `add_to_memory` ganha `path?`/`url?` além de `text`. Testes com fakes. ADR 024.
+
+### Bloco 9 — i18n da camada de apresentação [BAIXO/MÉDIO — dívida registrada]
+- **Por quê:** ACHADO/i18n do STATE — `risk.ts`/server.ts têm template hardcoded em inglês (`Risk: HIGH`, labels), independente do idioma do usuário. O conteúdo extraído segue o idioma da entrada (PT→PT ok), mas a moldura não.
+- **Escopo:** extrair strings de apresentação p/ um módulo de labels, detectar/configurar idioma (env `QA_MEMORY_LANG` default en, pt-BR como 1º alvo). Sem schema, sem dep. ADR 025.
+
+### Bloco 10 — Performance do `assess`: reusar embedder quente [BAIXO — otimização]
+- **Por quê:** ADR 021 registrou — `assess` carrega o modelo de embedding FRIO a cada chamada (não usa o daemon quente do query path, ~9s de penalidade). Análoga ao cold-start que o ADR 020 resolveu p/ query.
+- **Escopo:** retrieval do `impact.py` consome o mesmo `embed-serve` quente (ou o MCP injeta o vetor já embedado via o PersistentEmbedder e passa pro subprocess). Medir antes/depois. ADR 026.
+
+### Futuro (sem bloco ainda — depende de prioridade do usuário)
+- **Subagent/skill "memory-keeper"** automatizado (cuida da memória sozinho — sync, dedup, confirma inferências). É a inteligência no AGENTE (ADR 014), não em conector.
+- **Conectores nativos + scheduler** (Jira/Confluence/Drive, Atlassian token). Hoje é agente-alimentado por decisão (ADR 014); nativo só quando o subagent existir.
+- **UI dedicada (C)** — ADIADA, só se não-técnico virar prioridade (usuário avisa).
+- **Embeddings de rules/incidents** (hoje só behaviors são embedados) — melhora recall quando o volume crescer.
 
 ## Decisões em aberto
 - Reordenar fontes: usuário tem conhecimento "na cabeça" + Confluence + Jira (não PDF como prioridade real). PDF continua sendo a 1ª fonte IMPLEMENTADA (simples, sem auth, fácil de testar), mas Jira+Confluence (Atlassian, mesmo token) sobem na prioridade logo após. "Na cabeça" → via update_rule (conversa).
