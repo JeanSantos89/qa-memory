@@ -20,12 +20,12 @@ const SEMANTIC_FLOOR = 0.25;
 // not already surfaced, capped at `limit`. Falls back to pure LIKE when there
 // are no embeddings or the embedder is unavailable — so seeded/un-ingested DBs
 // still work exactly as before.
-export function searchBehaviors(
+export async function searchBehaviors(
   db: Database,
   embedder: Embedder,
   query: string,
   limit = 10,
-): Behavior[] {
+): Promise<Behavior[]> {
   const q = query.trim();
   if (!q) return listBehaviors(db).slice(0, limit);
 
@@ -34,7 +34,7 @@ export function searchBehaviors(
   const embedded = listBehaviorEmbeddings(db);
   if (embedded.length === 0) return lexical;
 
-  const queryVec = embedder.embed(q);
+  const queryVec = await embedder.embed(q);
   if (!queryVec) return lexical;
 
   const ranked = embedded

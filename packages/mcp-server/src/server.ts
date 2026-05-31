@@ -2,14 +2,15 @@
 import type { Database } from "better-sqlite3";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { queryBehavior } from "./repo/behaviors.js";
+import { countBehaviors, queryBehavior } from "./repo/behaviors.js";
+import { emptyStateHint, registerPrompts } from "./prompts.js";
 import {
   getRuleById,
   insertRule,
   listRulesForBehaviors,
   overrideRule,
 } from "./repo/rules.js";
-import { type Embedder, PythonEmbedder } from "./embedder.js";
+import { type Embedder, PersistentEmbedder } from "./embedder.js";
 import { type Ingester, PythonIngester } from "./ingester.js";
 import { searchBehaviors } from "./search.js";
 import { computeRisk } from "./risk.js";
@@ -19,7 +20,7 @@ import { VERSION } from "./version.js";
 // subprocess/model/API key.
 export function createServer(
   db: Database,
-  embedder: Embedder = new PythonEmbedder(),
+  embedder: Embedder = new PersistentEmbedder(),
   ingester: Ingester = new PythonIngester(),
 ): McpServer {
   const server = new McpServer({ name: "qa-memory", version: VERSION });
@@ -32,11 +33,13 @@ export function createServer(
         "Search product behaviors by free text (matches name + description). Empty query returns all active behaviors.",
       inputSchema: { query: z.string().describe("Free-text search over behavior name + description") },
     },
-    (args: { query: string }) => {
-      const results = searchBehaviors(db, embedder, args.query);
+    async (args: { query: string }) => {
+      const results = await searchBehaviors(db, embedder, args.query);
       const text =
         results.length === 0
-          ? `No behaviors match "${args.query}".`
+          ? countBehaviors(db) === 0
+            ? emptyStateHint()
+            : `No behaviors match "${args.query}".`
           : results
               .map((b) => `${b.criticality} ${b.name}${b.confirmed_by_qa ? " ✓" : ""}\n  ${b.description}`)
               .join("\n\n");
@@ -56,8 +59,8 @@ export function createServer(
         "Given a free-text area/feature, return a derived risk score (0..1) + level, the matched behaviors, their rules, and the reasons behind the score. Use before deciding test depth for a change.",
       inputSchema: { query: z.string().describe("Free-text area, feature, or file to assess") },
     },
-    (args: { query: string }) => {
-      const behaviors = searchBehaviors(db, embedder, args.query);
+    async (args: { query: string }) => {
+      const behaviors = await searchBehaviors(db, embedder, args.query);
       const rules = listRulesForBehaviors(
         db,
         behaviors.map((b) => b.id),
@@ -84,7 +87,9 @@ export function createServer(
 
       const text =
         behaviors.length === 0
-          ? `${header}\n${why}`
+          ? countBehaviors(db) === 0
+            ? `${header}\n${why}\n\n${emptyStateHint()}`
+            : `${header}\n${why}`
           : `${header}\n${why}\n\n${behaviorLines}`;
 
       return {
@@ -209,6 +214,8 @@ export function createServer(
       };
     },
   );
+
+  registerPrompts(server, db);
 
   return server;
 }

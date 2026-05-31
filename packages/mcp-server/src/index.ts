@@ -3,13 +3,20 @@ import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { resolveDbPath } from "./config.js";
 import { openDb } from "./db/index.js";
+import { PersistentEmbedder } from "./embedder.js";
 import { createServer } from "./server.js";
 
 export { VERSION } from "./version.js";
 
 async function main(): Promise<void> {
   const db = openDb(resolveDbPath());
-  const server = createServer(db);
+  // Own the embedder here so we can release its warm subprocess on shutdown.
+  const embedder = new PersistentEmbedder();
+  process.on("exit", () => embedder.close());
+  process.on("SIGINT", () => process.exit(0));
+  process.on("SIGTERM", () => process.exit(0));
+
+  const server = createServer(db, embedder);
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

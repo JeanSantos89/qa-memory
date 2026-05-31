@@ -8,7 +8,7 @@ import type { Embedder } from "./embedder.js";
 import type { Ingester, IngestResult } from "./ingester.js";
 import { createServer } from "./server.js";
 
-const noEmbed: Embedder = { embed: () => null };
+const noEmbed: Embedder = { embed: () => Promise.resolve(null) };
 
 // Records the last ingestText call so tests can assert routing.
 function spyIngester(result: IngestResult): Ingester & { last?: { text: string; label: string; sourceType: string } } {
@@ -36,6 +36,16 @@ async function connectedClient(ingester: Ingester = spyIngester({ ok: true, mess
     qa_override: true,
   });
   const server = createServer(db, noEmbed, ingester);
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test", version: "0.0.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  return client;
+}
+
+// Empty DB — exercises the guided/empty-state surface (Block B).
+async function emptyClient() {
+  const db = openDb(":memory:");
+  const server = createServer(db, noEmbed, spyIngester({ ok: true, message: "ok" }));
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test", version: "0.0.0" });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -154,5 +164,50 @@ describe("add_to_memory tool over MCP", () => {
     })) as { content: Array<{ text: string }>; structuredContent?: { ok: boolean } };
     expect(res.structuredContent?.ok).toBe(false);
     expect(res.content[0]?.text).toContain("Could not ingest");
+  });
+});
+
+describe("guided surface (Block B)", () => {
+  it("lists the getting_started and assess_change prompts", async () => {
+    const client = await connectedClient();
+    const { prompts } = await client.listPrompts();
+    expect(prompts.map((p) => p.name)).toEqual(
+      expect.arrayContaining(["getting_started", "assess_change"]),
+    );
+  });
+
+  it("getting_started teaches the feed-then-query flow on an empty DB", async () => {
+    const client = await emptyClient();
+    const res = await client.getPrompt({ name: "getting_started" });
+    const text = res.messages[0]?.content as { type: string; text: string };
+    expect(text.text).toContain("qa-memory is empty");
+    expect(text.text).toContain("add_to_memory");
+  });
+
+  it("assess_change walks through query_risk for the given area", async () => {
+    const client = await connectedClient();
+    const res = await client.getPrompt({ name: "assess_change", arguments: { area: "checkout" } });
+    const text = res.messages[0]?.content as { type: string; text: string };
+    expect(text.text).toContain("checkout");
+    expect(text.text).toContain("query_risk");
+  });
+
+  it("query_behavior teaches instead of just 'no match' when the DB is empty", async () => {
+    const client = await emptyClient();
+    const res = (await client.callTool({
+      name: "query_behavior",
+      arguments: { query: "anything" },
+    })) as { content: Array<{ text: string }> };
+    expect(res.content[0]?.text).toContain("qa-memory is empty");
+    expect(res.content[0]?.text).not.toContain("No behaviors match");
+  });
+
+  it("query_risk surfaces the empty-state hint when nothing is remembered", async () => {
+    const client = await emptyClient();
+    const res = (await client.callTool({
+      name: "query_risk",
+      arguments: { query: "anything" },
+    })) as { content: Array<{ text: string }> };
+    expect(res.content[0]?.text).toContain("qa-memory is empty");
   });
 });

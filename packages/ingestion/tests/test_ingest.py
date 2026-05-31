@@ -99,3 +99,12 @@ def test_resolve_db_path_default_and_env_override(tmp_path: Path) -> None:
 
     custom = tmp_path / "custom.db"
     assert resolve_db_path({"QA_MEMORY_DB": str(custom)}) == custom.resolve()
+
+
+def test_connect_creates_missing_parent_dir(tmp_path: Path) -> None:
+    # Fresh clone has no .qa-memory/ — connect must create it (mirror of TS openDb).
+    db_path = tmp_path / "nested" / "qa-memory.db"
+    assert not db_path.parent.exists()
+    conn = connect(str(db_path))
+    conn.close()
+    assert db_path.exists()

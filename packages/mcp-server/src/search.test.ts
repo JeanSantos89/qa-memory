@@ -19,37 +19,37 @@ function seedWithVector(db: ReturnType<typeof openDb>, name: string, vec: number
 }
 
 // Fake embedder returns a fixed query vector → ranking is deterministic.
-const fixed = (vec: number[]): Embedder => ({ embed: () => vec });
-const broken: Embedder = { embed: () => null };
+const fixed = (vec: number[]): Embedder => ({ embed: () => Promise.resolve(vec) });
+const broken: Embedder = { embed: () => Promise.resolve(null) };
 
 describe("searchBehaviors (hybrid)", () => {
-  it("ranks by cosine: query vector closest to checkout wins", () => {
+  it("ranks by cosine: query vector closest to checkout wins", async () => {
     const db = openDb(":memory:");
     seedWithVector(db, "Checkout", [1, 0, 0]);
     seedWithVector(db, "Reporting", [0, 1, 0]);
-    const results = searchBehaviors(db, fixed([0.9, 0.1, 0]), "anything");
+    const results = await searchBehaviors(db, fixed([0.9, 0.1, 0]), "anything");
     expect(results[0]?.name).toBe("Checkout");
   });
 
-  it("filters out unrelated behaviors below the semantic floor", () => {
+  it("filters out unrelated behaviors below the semantic floor", async () => {
     const db = openDb(":memory:");
     seedWithVector(db, "Checkout", [1, 0, 0]);
     seedWithVector(db, "Reporting", [0, 1, 0]);
-    const results = searchBehaviors(db, fixed([1, 0, 0]), "zzz-no-lexical-match");
+    const results = await searchBehaviors(db, fixed([1, 0, 0]), "zzz-no-lexical-match");
     expect(results.map((b) => b.name)).toEqual(["Checkout"]);
   });
 
-  it("falls back to LIKE when there are no embeddings", () => {
+  it("falls back to LIKE when there are no embeddings", async () => {
     const db = openDb(":memory:");
     insertBehavior(db, { name: "Password reset", description: "reset via email", criticality: "P1" });
-    const results = searchBehaviors(db, fixed([1, 0, 0]), "reset");
+    const results = await searchBehaviors(db, fixed([1, 0, 0]), "reset");
     expect(results.map((b) => b.name)).toEqual(["Password reset"]);
   });
 
-  it("falls back to LIKE when the embedder is unavailable", () => {
+  it("falls back to LIKE when the embedder is unavailable", async () => {
     const db = openDb(":memory:");
     seedWithVector(db, "Checkout flow", [1, 0, 0]);
-    const results = searchBehaviors(db, broken, "checkout");
+    const results = await searchBehaviors(db, broken, "checkout");
     expect(results.map((b) => b.name)).toEqual(["Checkout flow"]);
   });
 });

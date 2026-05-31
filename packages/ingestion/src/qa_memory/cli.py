@@ -112,5 +112,18 @@ def embed(
     typer.echo(json.dumps(vector))
 
 
+@app.command(name="embed-serve")
+def embed_serve() -> None:
+    """Warm embedding server: load the model once, answer line-delimited JSON
+    requests on stdin with one JSON response per line on stdout.
+
+    Kills the ~9s-per-query model reload that the one-shot `embed` pays. The MCP
+    server keeps this process alive (PersistentEmbedder). See pipeline/embed_serve.
+    """
+    from qa_memory.pipeline.embed_serve import main as serve_main
+
+    serve_main()
+
+
 if __name__ == "__main__":
     app()
