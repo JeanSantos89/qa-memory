@@ -52,5 +52,5 @@ Runtime truth = `CLAUDE.md` + `docs/` + the code.
 ## Token strategy
 Two-pass extraction: summary first (≤150 tokens/chunk), full extraction only on relevant chunks.
 Budget per sync run: configurable, default 50k tokens.
-Model for batch extraction: claude-haiku-4-5-20251001 (cheapest).
+Model for batch extraction: cheapest per provider (Anthropic claude-haiku-4-5-20251001 / Gemini gemini-2.5-flash / local Llama via Ollama llama3.1). Provider via env `QA_MEMORY_LLM` (default anthropic; gemini|ollama opt-in). Ver ADR 017.
 All internal pipeline prompts: caveman-style terse.

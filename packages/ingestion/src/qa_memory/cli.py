@@ -20,7 +20,7 @@ from qa_memory.db import connect
 from qa_memory.pipeline.embeddings import LocalEmbeddingModel
 from qa_memory.pipeline.extractor import TwoPassExtractor
 from qa_memory.pipeline.ingest import ingest_doc
-from qa_memory.pipeline.llm import AnthropicClient
+from qa_memory.pipeline.llm import make_llm_client
 from qa_memory.sources.pdf import PdfSource
 from qa_memory.sources.text import TextSource
 
@@ -39,7 +39,7 @@ def ingest(
 
     doc = PdfSource(pdf).extract()
     conn = connect(resolve_db_path())
-    extractor = TwoPassExtractor(AnthropicClient(), budget=budget)
+    extractor = TwoPassExtractor(make_llm_client(), budget=budget)
     report = ingest_doc(conn, doc, extractor, LocalEmbeddingModel())
 
     if report.skipped:
@@ -72,7 +72,7 @@ def ingest_text(
 
     doc = TextSource(raw, label=label, source_type=source_type).extract()
     conn = connect(resolve_db_path())
-    extractor = TwoPassExtractor(AnthropicClient(), budget=budget)
+    extractor = TwoPassExtractor(make_llm_client(), budget=budget)
     report = ingest_doc(conn, doc, extractor, LocalEmbeddingModel())
 
     if report.skipped:
