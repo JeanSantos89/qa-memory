@@ -57,7 +57,7 @@
 - **Decision:** Tool `query_behavior` consome `repo.queryBehavior` (LIKE name+description, exclui deprecated, case-insensitive) — slice real ponta a ponta, não mock. McpServer via stdio (`StdioServerTransport`). CLI `qa-memory` com `status`/`list behaviors`/`seed`. Seed dogfood NEUTRO (qa-memory sobre si mesmo) p/ demo compartilhável. Regras/confidence ficam p/ bloco futuro (não entram nesse slice). `main()` guardado por `process.argv[1] === fileURLToPath(import.meta.url)` p/ não rodar em import (testes). `openDb` cria dir pai p/ DBs em arquivo.
 - **Consequences:** Slice demonstrável: `qa-memory seed` → MCP `query_behavior` retorna dados reais. Sem mock a manter. Embeddings/ranking semântico chegam na Fase 3 (substituem o LIKE). Bin novo `qa-memory` em package.json (além de `qa-memory-mcp`).
 
-## 010 — Auditoria de neutralidade p/ repo público (fix PROJ-3053)
+## 010 — Auditoria de neutralidade p/ repo público
 - **Date:** 2026-05-30
 - **Context:** Usuário perguntou se pode tornar o repo público. CLAUDE.md proíbe chaves de projeto Jira reais. `docs/SCHEMA.md` usava uma chave de um projeto interno real como exemplo de `source_ref`.
 - **Decision:** Auditar todo o histórico (`git log -p` por padrões sensíveis). Único achado: a chave de projeto interna → trocada por `PROJ-123` neutro. Não reescrever histórico (valor não é secreto, só viola neutralidade; custo de filter-repo não se justifica p/ chave de exemplo).
