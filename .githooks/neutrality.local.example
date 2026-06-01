@@ -1,0 +1,16 @@
+# Local neutrality denylist — COPY this to `.githooks/neutrality.local`
+# (that filename is git-ignored via `*.local`, so it never gets committed).
+#
+# One term per line. Each is matched case-insensitively (grep -iE) against the
+# ADDED lines of any commit/push. Put here the COMPANY-SPECIFIC strings that
+# must never reach git: company name, internal domains, real Jira project keys,
+# product/customer names. These live only on your machine.
+#
+# Lines starting with # and blank lines are ignored. Terms are regexes.
+#
+# Examples (replace with your real ones in neutrality.local, NOT here):
+#   acme-corp
+#   acme\.internal
+#   \bACME\b
+#   \b[A-Z]{3}-[0-9]+\b      # your real Jira project key prefix
+#   some-internal-product-name

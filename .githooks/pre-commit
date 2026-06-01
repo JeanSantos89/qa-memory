@@ -54,4 +54,11 @@ if [ "$fail" = "1" ]; then
   exit 1
 fi
 
+# --- Neutrality guard: block sensitive content from ever entering a commit. ---
+# Scans staged ADDED lines for Jira keys / credentials / company terms.
+# .githooks/ is excluded: the guard scripts legitimately contain pattern
+# literals (e.g. "sk-ant-") that would otherwise self-trigger.
+git diff --cached --diff-filter=ACMR -U0 -- . ':!.githooks/' \
+  | sh "$(git rev-parse --show-toplevel)/.githooks/neutrality-scan.sh" || exit 1
+
 exit 0

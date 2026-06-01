@@ -1,0 +1,27 @@
+#!/bin/sh
+# qa-memory neutrality guard at PUSH time — the last line before the remote.
+# Defense-in-depth over the pre-commit guard: scans every commit being pushed.
+# If a range can't be computed it does not block (pre-commit already guards
+# what enters history). See .githooks/neutrality-scan.sh.
+#
+# Bypass (rare, explain): ALLOW_NEUTRALITY_SKIP=1 git push ...
+set -eu
+
+root=$(git rev-parse --show-toplevel)
+zero=0000000000000000000000000000000000000000
+scan="$root/.githooks/neutrality-scan.sh"
+rc=0
+
+while read -r _localref localsha _remoteref remotesha; do
+  [ "$localsha" = "$zero" ] && continue # deleting a remote ref
+  # .githooks/ excluded: guard scripts contain pattern literals that self-trigger.
+  if [ "$remotesha" = "$zero" ]; then
+    # New branch on the remote — scan commits not already on any remote.
+    out=$(git log -p -U0 "$localsha" --not --remotes -- . ':!.githooks/' 2>/dev/null || true)
+  else
+    out=$(git diff -U0 "${remotesha}..${localsha}" -- . ':!.githooks/' 2>/dev/null || true)
+  fi
+  printf '%s\n' "$out" | sh "$scan" || rc=1
+done
+
+exit $rc

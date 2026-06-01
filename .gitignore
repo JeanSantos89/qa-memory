@@ -4,6 +4,9 @@
 # Credentials
 **/google-creds.json
 *.token
+# Local neutrality denylist (company-specific terms). Covered by *.local below
+# too; listed here for clarity. The tracked .example shows the format.
+.githooks/neutrality.local
 
 # --- Node / TypeScript ---
 node_modules/
