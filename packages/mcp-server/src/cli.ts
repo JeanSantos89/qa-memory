@@ -6,6 +6,7 @@ import { resolveDbPath } from "./config.js";
 import { openDb } from "./db/index.js";
 import { PersistentEmbedder } from "./embedder.js";
 import { type FeedInput, feedKnowledge } from "./feed.js";
+import { getLabels } from "./i18n.js";
 import { listBehaviors } from "./repo/behaviors.js";
 import { seedDb } from "./seed.js";
 import { VERSION } from "./version.js";
@@ -21,6 +22,8 @@ function count(db: Database, table: string): number {
 export function runCommand(db: Database, dbPath: string, argv: string[]): string {
   const cmd = argv[0];
 
+  const L = getLabels();
+
   if (cmd === "status") {
     return [
       `qa-memory ${VERSION}`,
@@ -31,7 +34,7 @@ export function runCommand(db: Database, dbPath: string, argv: string[]): string
 
   if (cmd === "list" && argv[1] === "behaviors") {
     const behaviors = listBehaviors(db);
-    if (behaviors.length === 0) return "No behaviors yet. Run `qa-memory seed` for dogfood data.";
+    if (behaviors.length === 0) return L.noBehaviorsYet;
     return behaviors
       .map((b) => `${b.criticality} ${b.name}${b.confirmed_by_qa ? " ✓" : ""}`)
       .join("\n");
@@ -39,17 +42,10 @@ export function runCommand(db: Database, dbPath: string, argv: string[]): string
 
   if (cmd === "seed") {
     const n = seedDb(db);
-    return n === 0 ? "DB already has behaviors; nothing seeded." : `Seeded ${n} behaviors.`;
+    return n === 0 ? L.alreadySeeded : L.seeded(n);
   }
 
-  return [
-    "Usage: qa-memory <command>",
-    "  status           show DB path + row counts",
-    "  list behaviors   list known behaviors",
-    "  seed             insert dogfood behaviors (no-op if any exist)",
-    "  feed             read structured knowledge JSON from stdin and persist it",
-    "                   (no-LLM: caller is the extractor; local embeddings added)",
-  ].join("\n");
+  return L.usage;
 }
 
 // Reads all of stdin as UTF-8 text.
@@ -76,8 +72,9 @@ async function runFeed(db: Database): Promise<string> {
   const embedder = new PersistentEmbedder(process.env);
   try {
     const r = await feedKnowledge(db, input, embedder);
-    const tail = r.embedder_available ? "" : " (embedder unavailable → LIKE-only search)";
-    return `fed: ${r.behaviors} behaviors, ${r.rules} rules, ${r.embeddings} embeddings${tail}`;
+    const L = getLabels();
+    const tail = r.embedder_available ? "" : ` ${L.embedderUnavailable}`;
+    return `${L.fed(r.behaviors, r.rules, r.embeddings)}${tail}`;
   } finally {
     embedder.close?.();
   }
