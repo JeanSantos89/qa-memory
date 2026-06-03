@@ -160,6 +160,12 @@ Ordem pensada p/ maximizar valor de QA por bloco, mantendo a regra "1 bloco = un
 - **i18n 2ª passada** — `prompts.ts` + `cli.ts` seguem EN (débito do ADR 025). Baixo valor.
 - **UI dedicada (C)** — ADIADA, só se não-técnico virar prioridade (usuário avisa).
 
+### PENDÊNCIA registrada (2026-06-03) — comando `feed` no CLI (ingestão sem LLM)
+- **Contexto:** fluxo de alimentação via Claude Code (agente como extrator) precisa de um caminho que escreva direto no SQLite sem chamar LLM interno. Hoje `add_to_memory`/`ingest-text` exigem `ANTHROPIC_API_KEY` no ambiente — não funciona quando o usuário opera só via conta Claude Code sem key configurada localmente.
+- **Solução proposta:** comando `qa-memory feed` que aceita JSON pré-estruturado `{source, behaviors: [{name, description, criticality, rules: [...]}]}` e persiste direto (sem extração LLM). Claude Code faz a extração inline e passa o JSON; o CLI só escreve + embeda com o modelo local.
+- **Por quê não implementado agora:** workaround funcional via Python+SQLite direto (scripts temporários). Mas o fluxo correto seria ter esse comando nativo p/ tornar o CLAUDE.md do workspace `feed_to_memory` mais robusto.
+- **Prioridade:** baixa (workaround funciona); implementar quando houver um bloco de CLI/UX.
+
 ### PENDÊNCIA registrada (2026-05-31) — tooling do repo, decidir DEPOIS do projeto completo
 > Usuário pediu p/ MARCAR, não implementar agora. Decidir o conjunto quando o produto estiver fechado.
 - **Agentes (`.claude/agents/`)** p/ manutenção fácil — candidatos levantados (escolher quais valem a pena):
