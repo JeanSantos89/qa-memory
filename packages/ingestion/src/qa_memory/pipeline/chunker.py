@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 
 DEFAULT_MAX_CHARS = 2000
-DEFAULT_OVERLAP = 200
+DEFAULT_OVERLAP = 100
 
 _PARA_SPLIT = re.compile(r"\n\s*\n")
 

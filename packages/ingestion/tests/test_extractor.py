@@ -61,12 +61,23 @@ def test_two_pass_only_extracts_relevant_chunks() -> None:
 
 
 def test_token_usage_accumulates() -> None:
+    # Single chunk: Pass 1 skipped → only extract call counts toward usage.
     chunks = [Chunk(0, "x")]
-    client = FakeClient([_summary(relevant=True, io=(10, 5)), _extract([], io=(20, 30))])
+    client = FakeClient([_extract([], io=(20, 30))])
     result = TwoPassExtractor(client).extract(chunks)
-    assert result.usage.input_tokens == 30
-    assert result.usage.output_tokens == 35
-    assert result.usage.total == 65
+    assert result.usage.input_tokens == 20
+    assert result.usage.output_tokens == 30
+    assert result.usage.total == 50
+
+
+def test_token_usage_accumulates_multi_chunk() -> None:
+    # Multi-chunk: Pass 1 + Pass 2 both accumulate.
+    chunks = [Chunk(0, "a"), Chunk(1, "b")]
+    client = FakeClient([_summary(relevant=True, io=(10, 5)), _summary(relevant=False, io=(10, 5)), _extract([], io=(20, 30))])
+    result = TwoPassExtractor(client).extract(chunks)
+    assert result.usage.input_tokens == 40
+    assert result.usage.output_tokens == 40
+    assert result.usage.total == 80
 
 
 def test_budget_stops_before_overshoot() -> None:
@@ -79,22 +90,36 @@ def test_budget_stops_before_overshoot() -> None:
 
 
 def test_tolerates_fenced_json() -> None:
-    chunks = [Chunk(0, "x")]
+    # Two chunks so Pass 1 runs and fenced-JSON parsing is exercised.
+    chunks = [Chunk(0, "x"), Chunk(1, "y")]
     fenced = LLMResponse(
         text='```json\n{"summary": "ok", "relevant": true}\n```',
         input_tokens=1,
         output_tokens=1,
     )
-    client = FakeClient([fenced, _extract([])])
+    client = FakeClient([fenced, _summary(relevant=False), _extract([])])
     result = TwoPassExtractor(client).extract(chunks)
     assert result.summaries[0].summary == "ok"
     assert result.summaries[0].relevant is True
 
 
 def test_malformed_json_degrades_gracefully() -> None:
-    chunks = [Chunk(0, "x")]
+    # Two chunks so Pass 1 runs and malformed-JSON degradation is exercised.
+    chunks = [Chunk(0, "x"), Chunk(1, "y")]
     junk = LLMResponse(text="not json at all", input_tokens=1, output_tokens=1)
-    client = FakeClient([junk])
+    client = FakeClient([junk, _summary(relevant=False)])
     result = TwoPassExtractor(client).extract(chunks)
     assert result.summaries[0].relevant is False
     assert result.behaviors == []
+
+
+def test_single_chunk_skips_pass1() -> None:
+    # Single chunk bypasses summarization and goes straight to extraction.
+    chunks = [Chunk(0, "login locks after 3 fails")]
+    client = FakeClient([_extract([{"name": "Login lockout", "description": "locks",
+                                    "criticality": "P1", "rules": ["lock after 3"]}])])
+    result = TwoPassExtractor(client).extract(chunks)
+    assert len(client.calls) == 1  # no summary call
+    assert result.summaries[0].relevant is True
+    assert result.summaries[0].summary == ""
+    assert len(result.behaviors) == 1

@@ -1,4 +1,4 @@
-# qa-memory installer (Windows / PowerShell) — Block "Install script", ADR 019.
+﻿# qa-memory installer (Windows / PowerShell) — Block "Install script", ADR 019.
 # Day-0 setup made real: deps for both packages, build, an initialized instance,
 # and the MCP config snippet to paste into Claude Code. Idempotent — safe to re-run.
 #

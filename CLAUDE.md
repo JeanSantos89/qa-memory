@@ -8,6 +8,31 @@ Auto-clarity exception: revert to full prose for irreversible actions, security 
 Code blocks always intact — caveman affects prose only.
 Stop only if user says "normal mode" or "stop caveman".
 
+# Token economy — ENFORCE EVERY SESSION
+
+## MCP usage
+- MCP qa-memory tools = EXPENSIVE. Call ONLY when user explicitly needs memory read/write.
+- NEVER call MCP to "check" or "explore" — use Bash/Python+SQLite direct instead.
+- Batch ops → Python script hitting SQLite directly (never MCP loop).
+- One MCP call per task. No chained calls unless strictly required.
+- If uncertain whether MCP needed: don't call it, do it locally.
+
+## PDF reading
+- ALWAYS run `tools\pdf-extract.ps1 <file>` first → reads the .txt output, NEVER the raw PDF.
+- Never rasterize/read PDF directly → costs ~1600 tokens/page vs ~4 chars/token for .txt.
+- If PDF is scanned (script warns): rasterize ONLY the key pages, not the whole doc.
+
+## Agent/subagent usage
+- NO subagents for single-file reads, single searches, or short tasks.
+- Spawn agent only when task needs parallel independent work across 3+ files.
+- Prefer: Glob → Grep → Read (direct tools) over any agent delegation.
+
+## General
+- Read only the lines needed (use offset+limit on Read).
+- Glob before Grep; Grep before Read.
+- No trailing summaries ("I just did X") — user can see the diff.
+- No planning docs unless user asks.
+
 # qa-memory
 
 MCP server. QA knowledge layer. Stores product understanding, not test cases.

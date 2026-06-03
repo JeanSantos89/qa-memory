@@ -21,18 +21,14 @@ SUMMARY_MAX_TOKENS = 200  # ≤150 target + JSON wrapper slack
 EXTRACT_MAX_TOKENS = 1024
 
 _SUMMARY_SYSTEM = (
-    "Summarize chunk for QA knowledge base. Output JSON only: "
-    '{"summary": str (<=150 tokens), "relevant": bool}. '
-    "relevant=true if chunk describes product behavior/rules/constraints; "
-    "false if boilerplate, TOC, legal, formatting."
+    'QA KB triage. JSON: {"summary":str(<=150tok),"relevant":bool}. '
+    "relevant=true→product behavior/rules/constraints; false→boilerplate/TOC/legal/nav."
 )
 
 _EXTRACT_SYSTEM = (
-    "Extract product behaviors from chunk. Output JSON only: "
-    '{"behaviors": [{"name": str, "description": str, '
-    '"criticality": "P0"|"P1"|"P2"|"P3", "rules": [str]}]}. '
-    "Behavior = testable product capability. rules = business constraints. "
-    "Empty list if none."
+    'Extract behaviors. JSON: {"behaviors":[{"name":str,"description":str,'
+    '"criticality":"P0"|"P1"|"P2"|"P3","rules":[str]}]}. '
+    "Behavior=testable capability. rules=constraints. Empty list if none."
 )
 
 
@@ -101,21 +97,28 @@ class TwoPassExtractor:
     def extract(self, chunks: list[Chunk]) -> ExtractionResult:
         result = ExtractionResult()
 
-        # Pass 1 — summarize + flag relevance.
-        for chunk in chunks:
-            if not self._can_afford(result.usage, SUMMARY_MAX_TOKENS):
-                result.budget_exhausted = True
-                return result
-            resp = self.client.complete(_SUMMARY_SYSTEM, chunk.text, SUMMARY_MAX_TOKENS)
-            result.usage.add(resp)
-            data = _parse_json(resp.text)
+        # Single-chunk shortcut: skip Pass 1 entirely — treat as relevant.
+        # Saves one LLM call for short inputs (notes, pasted text, short specs).
+        if len(chunks) == 1:
             result.summaries.append(
-                ChunkSummary(
-                    chunk_index=chunk.index,
-                    summary=str(data.get("summary", "")),
-                    relevant=bool(data.get("relevant", False)),
-                )
+                ChunkSummary(chunk_index=chunks[0].index, summary="", relevant=True)
             )
+        else:
+            # Pass 1 — summarize + flag relevance.
+            for chunk in chunks:
+                if not self._can_afford(result.usage, SUMMARY_MAX_TOKENS):
+                    result.budget_exhausted = True
+                    return result
+                resp = self.client.complete(_SUMMARY_SYSTEM, chunk.text, SUMMARY_MAX_TOKENS)
+                result.usage.add(resp)
+                data = _parse_json(resp.text)
+                result.summaries.append(
+                    ChunkSummary(
+                        chunk_index=chunk.index,
+                        summary=str(data.get("summary", "")),
+                        relevant=bool(data.get("relevant", False)),
+                    )
+                )
 
         by_index = {c.index: c for c in chunks}
         relevant = [s for s in result.summaries if s.relevant]
