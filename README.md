@@ -2,6 +2,8 @@
 
 <div align="center">
 
+<img src="docs/assets/qa-memory-banner.png" alt="qa-memory banner" width="100%" />
+
 ![Status](https://img.shields.io/badge/status-alpha-orange?style=flat-square)
 ![Version](https://img.shields.io/badge/version-0.1.0--alpha-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
@@ -11,7 +13,7 @@
 ![pytest](https://img.shields.io/badge/pytest-79%20passing-6e9f18?style=flat-square)
 ![MCP](https://img.shields.io/badge/MCP-compatible-8957e5?style=flat-square)
 
-[What it does](#what-it-does) · [Setup](#installation) · [Workflows](#how-youll-use-it-day-to-day) · [MCP Tools](#mcp-tools)
+[What it does](#what-it-does) · [Setup](#installation) · [Workflows](#how-youll-use-it-day-to-day) · [MCP Tools](#mcp-tools) · [Token Economy](#token-economy)
 
 **QA institutional knowledge as a local MCP server — feed it specs, Jira tasks and Confluence pages,
 get risk scores, impact analysis and test plans directly from your AI coding assistant.**
@@ -208,6 +210,30 @@ Once connected, these tools are available to your AI assistant:
 | `review_memory` | List inferred rules awaiting QA confirmation (the memory-keeper's worklist). |
 | `find_duplicate_rules` | Detect clusters of near-duplicate rules across behaviors. |
 | `retire_rule` | Retire a redundant rule (sets status to superseded, removes from all reads). |
+
+---
+
+## Token Economy
+
+qa-memory was designed from the start to minimize LLM token usage. Every architectural decision trades verbosity for efficiency.
+
+**`feed_to_memory` — zero LLM cost**
+When content is already in your assistant's context (a Jira task you pasted, a Confluence page you fetched), the assistant itself does the extraction and calls `feed_to_memory` with structured JSON. No internal LLM call is made — it's a direct write to SQLite. Use `add_to_memory` only for raw URLs or local files the assistant can't read directly.
+
+**Two-pass extraction pipeline**
+Ingestion runs a summary pass first (≤ 150 tokens per chunk) to decide relevance, then a full extraction pass only on chunks that score above the threshold. Irrelevant content never reaches the expensive step.
+
+**Cheapest model per provider**
+The default extraction model is always the cheapest available: `claude-haiku-4-5` for Anthropic, `gemini-2.5-flash` for Gemini, `qwen2.5:14b` locally via Ollama. Configurable via `QA_MEMORY_LLM_MODEL` — upgrade only when quality demands it.
+
+**Terse internal prompts**
+All prompts inside the ingestion pipeline are written in a compressed, instruction-only style. No filler, no hedging, no chain-of-thought padding. The same principle applies to how Claude Code is configured to interact with this project (see `CLAUDE.md`).
+
+**Embeddings run locally**
+Semantic search uses `all-MiniLM-L6-v2` via `sentence-transformers` — no API call, no tokens billed. Risk scoring and behavior lookup are free at query time.
+
+**Token budget is enforced**
+Each sync run has a configurable token budget (default: 50k tokens). The pipeline tracks input + output tokens per LLM call and stops cleanly when the budget is exhausted, resuming on the next run.
 
 ---
 
