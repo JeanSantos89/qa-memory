@@ -80,8 +80,26 @@ export async function feedKnowledge(
   let embedderAvailable = embedder !== null;
   for (const content of contents) {
     const vec = embedder ? await embedder.embed(content) : null;
-    if (vec === null) embedderAvailable = false; // any miss → not fully available
+    if (vec === null) embedderAvailable = false;
     vectors.push(vec);
+  }
+
+  // Pre-generate rule IDs and embed their texts before the synchronous transaction.
+  // Embedding is async (subprocess); better-sqlite3 transactions are synchronous.
+  interface PreRule {
+    feedRule: FeedRule;
+    id: string;
+    vector: number[] | null;
+  }
+  const preRules: PreRule[][] = [];
+  for (const b of input.behaviors) {
+    const bRules: PreRule[] = [];
+    for (const r of b.rules ?? []) {
+      const id = randomUUID();
+      const vec = embedder && r.rule_text ? await embedder.embed(r.rule_text) : null;
+      bRules.push({ feedRule: r, id, vector: vec });
+    }
+    preRules.push(bRules);
   }
 
   let rules = 0;
@@ -117,21 +135,29 @@ export async function feedKnowledge(
         now,
       );
 
-      for (const r of b.rules ?? []) {
-        if (!r.rule_text) continue;
+      for (const pr of preRules[i] ?? []) {
+        if (!pr.feedRule.rule_text) continue;
         insertRule(
           db,
           {
+            id: pr.id,
             behavior_id: behaviorId,
-            rule_text: r.rule_text,
-            confidence: r.confidence ?? 0.6,
-            source_excerpt: r.source_excerpt ?? null,
+            rule_text: pr.feedRule.rule_text,
+            confidence: pr.feedRule.confidence ?? 0.6,
+            source_excerpt: pr.feedRule.source_excerpt ?? null,
             source_id: sourceId,
-            qa_override: r.qa_override ?? false,
-            override_reason: r.override_reason ?? null,
+            qa_override: pr.feedRule.qa_override ?? false,
+            override_reason: pr.feedRule.override_reason ?? null,
           },
           now,
         );
+        if (pr.vector) {
+          db.prepare(
+            `INSERT INTO embeddings (id, entity_type, entity_id, content, vector, model, created_at)
+             VALUES (?, 'rule', ?, ?, ?, ?, ?)`,
+          ).run(randomUUID(), pr.id, pr.feedRule.rule_text, packVector(pr.vector), EMBED_MODEL, now);
+          embeddings++;
+        }
         rules++;
       }
 

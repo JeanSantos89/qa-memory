@@ -4,10 +4,12 @@
 import type { Database } from "better-sqlite3";
 import {
   type Behavior,
+  behaviorsByIds,
   listBehaviorEmbeddings,
   listBehaviors,
   queryBehavior,
 } from "./repo/behaviors.js";
+import { listRuleEmbeddings } from "./repo/rules.js";
 import type { Embedder } from "./embedder.js";
 import { cosineSimilarity, unpackVector } from "./embeddings.js";
 
@@ -60,5 +62,35 @@ export async function searchBehaviors(
       out.push(b);
     }
   }
+
+  // Rule-level semantic hits: surface behaviors whose rules match the query even
+  // when the behavior name/description doesn't. Appended after behavior-level
+  // results so behavior hits always rank first.
+  if (out.length < limit) {
+    const ruleEmbeddings = listRuleEmbeddings(db);
+    if (ruleEmbeddings.length > 0) {
+      const ruleHitIds = ruleEmbeddings
+        .map(({ behavior_id, vector }) => ({
+          behavior_id,
+          score: cosineSimilarity(queryVec, unpackVector(vector)),
+        }))
+        .filter((r) => r.score >= SEMANTIC_FLOOR && !seen.has(r.behavior_id))
+        .sort((a, b) => b.score - a.score)
+        .map((r) => r.behavior_id);
+
+      const unique = [...new Set(ruleHitIds)];
+      if (unique.length > 0) {
+        const extra = behaviorsByIds(db, unique);
+        for (const b of extra) {
+          if (out.length >= limit) break;
+          if (!seen.has(b.id)) {
+            seen.add(b.id);
+            out.push(b);
+          }
+        }
+      }
+    }
+  }
+
   return out;
 }

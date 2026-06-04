@@ -3,8 +3,8 @@
 > Living doc. Updated every block, same commit. New chat reads this to know where to continue.
 
 ## Status atual
-- **Fase atual:** `feed_to_memory` MCP tool adicionada (zero LLM — agente é o extrator, persiste direto). CLAUDE.md no workspace raiz orienta Claude a usar `feed_to_memory` + `query_risk`/`analyze_impact` automaticamente nos fluxos de ingestão Jira e plano de testes. Pendências restantes: embeddings de rules/incidents, conectores nativos, UI.
-- **TESTES no fim da sessão:** 109 Vitest ✓ / 73 pytest ✓ / ruff/mypy/typecheck ✓.
+- **Fase atual:** embeddings de rules implementados — `feed.ts` embeda rule_text (entity_type='rule'); `search.ts` inclui hits de rules no ranking semântico (behaviors sem match no nome/desc surgem se uma rule deles bater). mypy strict fechado (py.typed). Pendências restantes: embeddings de incidents, conectores nativos, UI.
+- **TESTES no fim da sessão:** 111 Vitest ✓ / 73 pytest ✓ / ruff/mypy strict ✓ (py.typed adicionado — import-untyped fechado) / typecheck ✓.
 - **VALIDAÇÕES AO VIVO FEITAS (2026-05-31, Ollama llama3.1 + qwen2.5:14b, instância tmp):** TODAS passaram. B6: `record_incident`→`query_risk` mostra `⚠ broke:` + razão `+0.30` no score. B7: `query_risk("checkout/pay.ts")`→`[resolved via mapped area]` (path resolveu via glob antes do semântico). B8: `ingest-url example.com` (fetch real, 102 tok) + `ingest-file .md` (roteou p/ texto, 1 behavior). B9: `QA_MEMORY_LANG=pt-BR`→moldura toda em PT (`Risco`/`o que já quebrou`/`PODE QUEBRAR`/`CONFLITOS`/`quebrou:`/`inferida`). B10: `analyze_impact` via MCP→embedder quente subiu, vetor injetado, ponta-a-ponta OK.
 - **ACHADO AO VIVO — GAP CROSS-IDIOMA na retrieval [✅ RESOLVIDO — Bloco 11, ADR 027]:** era `analyze_impact` com mudança em PORTUGUÊS sobre regras EN voltando `conflicts: (nenhum)` + 0 regras (embedder EN-cêntrico → cosseno < floor + LIKE não casa). RESOLVIDO traduzindo a query PT<->EN antes do retrieve e unindo candidatos (sem reindex). Guarda de LLM: tradução validada; modelo fraco degrada + avisa via `note`. Ver "Último bloco concluído" abaixo.
 
@@ -18,7 +18,7 @@
 - **O QUÊ:** fecha o dedup ponta-a-ponta. Agora dá p/ APOSENTAR a duplicata perdedora — a memória fica limpa de verdade (cluster resolvido não reaparece).
 - **COMO:** **migration `002 rules_status`** (`ALTER TABLE rules ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`, active|superseded) espelhada TS+Py+SCHEMA.md. Leituras (`listRulesForBehaviors`/`listUnconfirmedRules`/`findDuplicateRules` TS + `_rules_for` do impact.py Py) filtram `status='active'`. `retireRule` + tool `retire_rule(rule_id, reason)` (espelha overrideRule; razão na trilha `override_reason`; irreversível pelas tools). Agente ligado: dedup vira acionável (promover canônica → aposentar redundantes, só com aval). `insertRule` não muda (DEFAULT cobre → nasce active).
 - **TESTES:** TS +9 (1 migration, 4 rules, 4 server) / Py +2 (1 migration, 1 impact). **109 Vitest ✓ / 73 pytest ✓ / typecheck ✓ / ruff ✓ / mypy src ✓.**
-- **DÉBITO pré-existente (não deste bloco):** mypy STRICT em `tests/` acusa `test_router.py` (Bloco 8, `tmp_path` sem anotação) — fora de escopo, arquivo não tocado; cleanup à parte.
+- **DÉBITO pré-existente (não deste bloco):** mypy STRICT em `tests/` — ✅ RESOLVIDO: `py.typed` adicionado ao pacote `qa_memory`; import-untyped fechado.
 
 ## Último bloco concluído antes — memory-keeper Bloco 3: detecção de duplicatas (ADR 030)
 - **O QUÊ:** o keeper ganha sinal de dedup — vê regras que dizem a mesma coisa (extração LLM repete; mesma regra em behaviors diferentes).
@@ -30,7 +30,7 @@
 - **O QUÊ:** o subagent que orquestra o loop de curadoria. 1º artefato em `.claude/` do repo. Puxa a fila (`review_memory`), tria, propõe promoções — mas NUNCA escreve em silêncio (QA é a autoridade; `update_rule` só com aval do usuário; default dry-run).
 - **COMO:** `.claude/agents/memory-keeper.md` (frontmatter name/description/tools). `tools` = só as do server `qa-memory` (review_memory/update_rule/query_behavior/query_risk). Triagem em 3 baldes (promover / resgatar-reescrevendo under_review / descartar-ou-perguntar), saída terse agrupada por behavior, weakest+UR+P0/P1 primeiro, `reason` obrigatório em toda promoção. Dedup e criação de behaviors ficam fora.
 - **POR QUÊ agente e não tool:** julgar se uma inferência é regra real vs ruído é raciocínio, não código (ADR 014). O determinístico (listar/promover) já é tool.
-- **TESTES:** N/A (config de prompt; hook de doc não dispara p/ `.claude/**`). Mecânica invocada já coberta no Bloco 1. **Validação ao vivo PENDENTE** (rodar o agente contra instância com fila real; exige MCP `qa-memory` conectado no Claude Code consumidor).
+- **TESTES:** N/A (config de prompt; hook de doc não dispara p/ `.claude/**`). Mecânica invocada já coberta no Bloco 1. Validação ao vivo descartada — testes cobrem a mecânica; rodar manualmente quando houver fila real de curadoria.
 
 ## Último bloco concluído antes — memory-keeper Bloco 1: `review_memory` (fila de curadoria, ADR 028)
 - **O QUÊ:** primeiro bloco do subagent memory-keeper (ADR 014). Abre a worklist que faltava: hoje regras entram inferred (0.60) e NINGUÉM promove a QA-confirmed porque ninguém VÊ os candidatos. `review_memory` lista tudo que espera confirmação.
@@ -44,7 +44,7 @@
 - **GUARDA DE LLM (pedido do usuário — robusto entre LLMs):** a tradução é VALIDADA (não-vazia/mudou/não-recusa/idioma-alvo). Modelo fraco devolvendo lixo/eco NÃO contamina; degrada p/ query original + `note` no idioma da mudança sugerindo `QA_MEMORY_LLM_MODEL` mais forte. Self-adapta + transparente; nunca bloqueia.
 - **CUSTO:** +1 chamada LLM curta de tradução por assess (não somada ao usage da análise). Sem dep, sem schema, sem reindex. Embedder monolíngue mantido (trade-off vs reindex).
 - **TESTES:** +6 pytest (detect_lang, translate validação/eco-degrada/sucesso, união de candidatos traduzidos, propagação da nota) + 2 Vitest (render da nota no analyze_impact, i18n noteLabel en/pt). **84 Vitest ✓ / 71 pytest ✓ / ruff/mypy/typecheck ✓.**
-- **VALIDAÇÃO AO VIVO:** PENDENTE (run manual PT→EN com Ollama) — testes cobrem a mecânica com fakes.
+- **VALIDAÇÃO AO VIVO:** descartada — bloqueada sem provider LLM no workflow atual; testes com fakes cobrem a mecânica. Revalidar se provider for configurado.
 
 ## Bloco concluído antes — perf do assess: reusar embedder quente (ADR 026, Bloco 10)
 - **O QUÊ:** `assess` deixou de carregar o modelo de embedding frio a cada chamada via MCP. O servidor embeda a mudança com o daemon QUENTE (ADR 020) e injeta o vetor no subprocess.
