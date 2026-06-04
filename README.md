@@ -1,6 +1,24 @@
 # qa-memory
 
-> A QA team's institutional knowledge, persisted — and available to your AI assistant while you work.
+<div align="center">
+
+![Status](https://img.shields.io/badge/status-alpha-orange?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.1.0--alpha-blue?style=flat-square)
+![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178c6?style=flat-square&logo=typescript&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.11+-3572a5?style=flat-square&logo=python&logoColor=white)
+![Vitest](https://img.shields.io/badge/Vitest-113%20passing-6e9f18?style=flat-square)
+![pytest](https://img.shields.io/badge/pytest-79%20passing-6e9f18?style=flat-square)
+![MCP](https://img.shields.io/badge/MCP-compatible-8957e5?style=flat-square)
+
+[What it does](#what-it-does) · [Setup](#installation) · [Workflows](#how-youll-use-it-day-to-day) · [MCP Tools](#mcp-tools)
+
+**QA institutional knowledge as a local MCP server — feed it specs, Jira tasks and Confluence pages,
+get risk scores, impact analysis and test plans directly from your AI coding assistant.**
+
+</div>
+
+---
 
 QA engineers build deep product knowledge over time: what the edge cases are, what breaks when you touch a certain area, what the business rules actually are (not what the docs say). That knowledge lives in people's heads and spreadsheets and gets lost when someone leaves or a new dev asks "is it safe to change this?"
 
