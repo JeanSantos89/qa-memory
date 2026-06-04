@@ -45,7 +45,13 @@ export interface Labels {
   seeded: (n: number) => string;
   fed: (behaviors: number, rules: number, embeddings: number) => string;
   embedderUnavailable: string;
+  feedInvalidJson: (msg: string) => string;
   usage: string;
+  // prompts registration metadata
+  promptGettingStartedTitle: string;
+  promptGettingStartedDesc: string;
+  promptAssessChangeTitle: string;
+  promptAssessChangeDesc: string;
 }
 
 const EN: Labels = {
@@ -111,6 +117,7 @@ const EN: Labels = {
   fed: (behaviors, rules, embeddings) =>
     `fed: ${behaviors} behaviors, ${rules} rules, ${embeddings} embeddings`,
   embedderUnavailable: "(embedder unavailable → LIKE-only search)",
+  feedInvalidJson: (msg) => `feed: invalid JSON on stdin: ${msg}`,
   usage: [
     "Usage: qa-memory <command>",
     "  status           show DB path + row counts",
@@ -119,6 +126,11 @@ const EN: Labels = {
     "  feed             read structured knowledge JSON from stdin and persist it",
     "                   (no-LLM: caller is the extractor; local embeddings added)",
   ].join("\n"),
+  promptGettingStartedTitle: "Getting started with qa-memory",
+  promptGettingStartedDesc: "Learn what qa-memory is and the first thing to do.",
+  promptAssessChangeTitle: "Assess a change before testing",
+  promptAssessChangeDesc:
+    "Given an area or feature about to change, walk through the risk and what to test.",
 };
 
 const PT_BR: Labels = {
@@ -187,6 +199,7 @@ const PT_BR: Labels = {
   fed: (behaviors, rules, embeddings) =>
     `alimentado: ${behaviors} behaviors, ${rules} regras, ${embeddings} embeddings`,
   embedderUnavailable: "(embedder indisponível → busca só por LIKE)",
+  feedInvalidJson: (msg) => `feed: JSON inválido no stdin: ${msg}`,
   usage: [
     "Uso: qa-memory <comando>",
     "  status           exibe caminho do DB + contagem de linhas",
@@ -195,6 +208,11 @@ const PT_BR: Labels = {
     "  feed             lê JSON de conhecimento estruturado do stdin e persiste",
     "                   (sem LLM: quem chama é o extrator; embeddings locais adicionados)",
   ].join("\n"),
+  promptGettingStartedTitle: "Primeiros passos com qa-memory",
+  promptGettingStartedDesc: "Saiba o que é qa-memory e qual o primeiro passo.",
+  promptAssessChangeTitle: "Avaliar uma mudança antes de testar",
+  promptAssessChangeDesc:
+    "Dada uma área ou funcionalidade prestes a mudar, percorra o risco e o que testar.",
 };
 
 const TABLE: Record<Lang, Labels> = { en: EN, "pt-BR": PT_BR };

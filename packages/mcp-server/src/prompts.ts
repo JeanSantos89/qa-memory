@@ -23,12 +23,13 @@ export function emptyStateHint(): string {
 }
 
 export function registerPrompts(server: McpServer, db: Database): void {
+  const L = getLabels();
   // Onboarding: what this is + the first move, branching on empty vs seeded.
   server.registerPrompt(
     "getting_started",
     {
-      title: "Getting started with qa-memory",
-      description: "Learn what qa-memory is and the first thing to do.",
+      title: L.promptGettingStartedTitle,
+      description: L.promptGettingStartedDesc,
     },
     () => {
       const L = getLabels();
@@ -43,8 +44,8 @@ export function registerPrompts(server: McpServer, db: Database): void {
   server.registerPrompt(
     "assess_change",
     {
-      title: "Assess a change before testing",
-      description: "Given an area or feature about to change, walk through the risk and what to test.",
+      title: L.promptAssessChangeTitle,
+      description: L.promptAssessChangeDesc,
       argsSchema: { area: z.string().describe("The area, feature, or file about to change") },
     },
     (args: { area: string }) => {

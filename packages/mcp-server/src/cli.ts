@@ -67,7 +67,7 @@ async function runFeed(db: Database): Promise<string> {
   try {
     input = JSON.parse(raw.replace(/^﻿/, "")) as FeedInput; // tolerate UTF-8 BOM
   } catch (e) {
-    throw new Error(`feed: invalid JSON on stdin: ${(e as Error).message}`);
+    throw new Error(getLabels().feedInvalidJson((e as Error).message));
   }
   const embedder = new PersistentEmbedder(process.env);
   try {

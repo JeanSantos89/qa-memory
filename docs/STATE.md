@@ -3,12 +3,19 @@
 > Living doc. Updated every block, same commit. New chat reads this to know where to continue.
 
 ## Status atual
-- **Fase atual:** embeddings de rules implementados — `feed.ts` embeda rule_text (entity_type='rule'); `search.ts` inclui hits de rules no ranking semântico (behaviors sem match no nome/desc surgem se uma rule deles bater). mypy strict fechado (py.typed). Pendências restantes: embeddings de incidents, conectores nativos, UI.
-- **TESTES no fim da sessão:** 111 Vitest ✓ / 73 pytest ✓ / ruff/mypy strict ✓ (py.typed adicionado — import-untyped fechado) / typecheck ✓.
+- **Fase atual:** i18n 2ª passada concluída (ADR 025 débito fechado) + comando `feed` no Python CLI. Pendências restantes: embeddings de incidents, conectores nativos, UI.
+- **TESTES no fim da sessão:** 113 Vitest ✓ / 79 pytest ✓ / ruff/mypy strict ✓ / typecheck ✓.
 - **VALIDAÇÕES AO VIVO FEITAS (2026-05-31, Ollama llama3.1 + qwen2.5:14b, instância tmp):** TODAS passaram. B6: `record_incident`→`query_risk` mostra `⚠ broke:` + razão `+0.30` no score. B7: `query_risk("checkout/pay.ts")`→`[resolved via mapped area]` (path resolveu via glob antes do semântico). B8: `ingest-url example.com` (fetch real, 102 tok) + `ingest-file .md` (roteou p/ texto, 1 behavior). B9: `QA_MEMORY_LANG=pt-BR`→moldura toda em PT (`Risco`/`o que já quebrou`/`PODE QUEBRAR`/`CONFLITOS`/`quebrou:`/`inferida`). B10: `analyze_impact` via MCP→embedder quente subiu, vetor injetado, ponta-a-ponta OK.
 - **ACHADO AO VIVO — GAP CROSS-IDIOMA na retrieval [✅ RESOLVIDO — Bloco 11, ADR 027]:** era `analyze_impact` com mudança em PORTUGUÊS sobre regras EN voltando `conflicts: (nenhum)` + 0 regras (embedder EN-cêntrico → cosseno < floor + LIKE não casa). RESOLVIDO traduzindo a query PT<->EN antes do retrieve e unindo candidatos (sem reindex). Guarda de LLM: tradução validada; modelo fraco degrada + avisa via `note`. Ver "Último bloco concluído" abaixo.
 
-## Último bloco concluído — guarda de neutralidade no git (ADR 032)
+## Último bloco concluído — i18n 2ª passada + CLI feed (débitos ADR 025 + pendência 2026-06-03)
+- **O QUÊ:** fecha dois débitos de baixo valor: (1) strings hardcoded EN em `prompts.ts`/`cli.ts` — títulos e descrições dos MCP prompts + mensagem de erro do `feed`; (2) comando `qa-memory feed` no Python CLI (antes só existia no TS CLI).
+- **COMO i18n:** `i18n.ts` ganhou 5 labels (`promptGettingStartedTitle/Desc`, `promptAssessChangeTitle/Desc`, `feedInvalidJson`). `prompts.ts` resolve labels no início de `registerPrompts` e usa nos títulos de registro. `cli.ts` usa `getLabels().feedInvalidJson` no catch do parse JSON.
+- **COMO feed Python:** novo `@app.command() feed()` em `cli.py`. Lê JSON do stdin, sem LLM — Claude age como extrator e passa o JSON estruturado. Embeda behaviors e rules com `LocalEmbeddingModel` local (all-MiniLM-L6-v2). Mesma semântica do `feedKnowledge` TS: source opcional, behaviors com rules, defaults idênticos (confidence 0.6, status active).
+- **TESTES:** TS +2 i18n (prompt titles localizados, feedInvalidJson localizado). Python +4 (persiste behaviors+rules+embeddings, sem source, JSON inválido, behaviors vazio). **113 Vitest ✓ / 79 pytest ✓ / ruff/mypy/typecheck ✓.**
+- **NOTA:** ruff E501 pré-existente em `tests/test_extractor.py:76` não é deste bloco.
+
+## Último bloco concluído antes — guarda de neutralidade no git (ADR 032)
 - **O QUÊ:** garantia MECÂNICA da regra de neutralidade (antes só disciplina; uma chave Jira interna chegou a vazar no doc). Bloqueia commit/push com conteúdo sensível. Crítico p/ o modo "treino" (memória do produto da empresa).
 - **COMO:** `.githooks/neutrality-scan.sh` (lê diff no stdin, varre linhas adicionadas → chaves tipo Jira menos allowlist, credenciais, e termos da denylist LOCAL). Denylist `.githooks/neutrality.local` é git-ignored (não vaza a própria lista); `.example` rastreado documenta. `pre-commit` varre o staged (barra antes de entrar no git); `pre-push` varre os commits enviados (defesa em profundidade). `.githooks/` excluído da varredura (scripts têm literais de padrão). Bypass `ALLOW_NEUTRALITY_SKIP=1`.
 - **AÇÃO DO USUÁRIO:** copiar `.githooks/neutrality.local.example` → `.githooks/neutrality.local` e preencher os termos da empresa (nome/domínio/chave de projeto). Hooks já ativos (`core.hooksPath .githooks`).
@@ -157,14 +164,9 @@ Ordem pensada p/ maximizar valor de QA por bloco, mantendo a regra "1 bloco = un
 - **Subagent/skill "memory-keeper"** automatizado (cuida da memória sozinho — sync, dedup, confirma inferências; hoje regras entram como inferred 0.60 e ninguém promove a QA-confirmed). É a inteligência no AGENTE (ADR 014), não em conector. **EM ANDAMENTO:** Bloco 1 CONCLUÍDO (ADR 028) — tool `review_memory` dá a worklist. Bloco 2 CONCLUÍDO (ADR 029) — o AGENTE `.claude/agents/memory-keeper.md` orquestra o loop ver→propor→(aval do usuário)→`update_rule`. Bloco 3 CONCLUÍDO (ADR 030) — `find_duplicate_rules` (dedup lexical). Bloco 4 CONCLUÍDO (ADR 031, migration 002) — `retire_rule` + `rules.status`; dedup ponta-a-ponta (detectar→propor→aprovar→aposentar). **Ciclo de curadoria completo.** Candidatos restantes (sem bloco): embeddings de rules, dedup de behaviors, **validação ao vivo do agente** (exige MCP `qa-memory` conectado).
 - **Embeddings de rules/incidents** (hoje só behaviors são embedados) — melhora recall quando o volume crescer.
 - **Conectores nativos + scheduler** (Jira/Confluence/Drive, Atlassian token). Hoje é agente-alimentado por decisão (ADR 014); nativo só quando o subagent existir.
-- **i18n 2ª passada** — `prompts.ts` + `cli.ts` seguem EN (débito do ADR 025). Baixo valor.
+- ~~**i18n 2ª passada**~~ — concluído neste bloco.
 - **UI dedicada (C)** — ADIADA, só se não-técnico virar prioridade (usuário avisa).
 
-### PENDÊNCIA registrada (2026-06-03) — comando `feed` no CLI (ingestão sem LLM)
-- **Contexto:** fluxo de alimentação via Claude Code (agente como extrator) precisa de um caminho que escreva direto no SQLite sem chamar LLM interno. Hoje `add_to_memory`/`ingest-text` exigem `ANTHROPIC_API_KEY` no ambiente — não funciona quando o usuário opera só via conta Claude Code sem key configurada localmente.
-- **Solução proposta:** comando `qa-memory feed` que aceita JSON pré-estruturado `{source, behaviors: [{name, description, criticality, rules: [...]}]}` e persiste direto (sem extração LLM). Claude Code faz a extração inline e passa o JSON; o CLI só escreve + embeda com o modelo local.
-- **Por quê não implementado agora:** workaround funcional via Python+SQLite direto (scripts temporários). Mas o fluxo correto seria ter esse comando nativo p/ tornar o CLAUDE.md do workspace `feed_to_memory` mais robusto.
-- **Prioridade:** baixa (workaround funciona); implementar quando houver um bloco de CLI/UX.
 
 ### PENDÊNCIA registrada (2026-05-31) — tooling do repo, decidir DEPOIS do projeto completo
 > Usuário pediu p/ MARCAR, não implementar agora. Decidir o conjunto quando o produto estiver fechado.

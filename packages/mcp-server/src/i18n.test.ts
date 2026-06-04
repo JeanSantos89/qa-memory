@@ -31,4 +31,19 @@ describe("getLabels", () => {
     expect(L.reasonNoCoverage).toContain("não tem cobertura");
     expect(L.noteLabel("limitada")).toContain("Nota:");
   });
+
+  it("prompt titles are localized", () => {
+    const en = getLabels({});
+    expect(en.promptGettingStartedTitle).toContain("Getting started");
+    expect(en.promptAssessChangeTitle).toContain("Assess");
+
+    const pt = getLabels({ QA_MEMORY_LANG: "pt-BR" });
+    expect(pt.promptGettingStartedTitle).toContain("Primeiros passos");
+    expect(pt.promptAssessChangeTitle).toContain("Avaliar");
+  });
+
+  it("feedInvalidJson is localized", () => {
+    expect(getLabels({}).feedInvalidJson("oops")).toContain("invalid JSON");
+    expect(getLabels({ QA_MEMORY_LANG: "pt-BR" }).feedInvalidJson("oops")).toContain("inválido");
+  });
 });

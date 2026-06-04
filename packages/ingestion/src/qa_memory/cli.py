@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -180,6 +180,174 @@ def assess(
             }
         )
     )
+
+
+@app.command()
+def feed() -> None:
+    """Ingest pre-structured knowledge JSON from stdin (no LLM).
+
+    Schema: {"source": {"type"?, "label"?, "source_ref"?},
+             "behaviors": [{"name", "description", "criticality",
+                            "confirmed_by_qa"?, "qa_note"?,
+                            "rules"?: [{"rule_text", "confidence"?,
+                                        "qa_override"?, "source_excerpt"?,
+                                        "override_reason"?}]}]}
+
+    Claude (or any agent) acts as extractor; this command only writes + embeds.
+    No API key required — embeddings use the local all-MiniLM-L6-v2 model.
+    """
+    import sys
+    import uuid
+    from datetime import UTC, datetime
+
+    from qa_memory.pipeline.embeddings import DEFAULT_MODEL, LocalEmbeddingModel, pack_vector
+
+    raw = sys.stdin.read()
+    if not raw.strip():
+        typer.secho("empty input", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1)
+
+    try:
+        data: Any = json.loads(raw.lstrip("﻿"))  # tolerate UTF-8 BOM; external JSON
+    except json.JSONDecodeError as exc:
+        typer.secho(f"feed: invalid JSON on stdin: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from None
+
+    behaviors_data: list[Any] = data.get("behaviors", [])
+    if not behaviors_data:
+        typer.secho(
+            "feed: input.behaviors must be a non-empty array", fg=typer.colors.RED, err=True
+        )
+        raise typer.Exit(1)
+
+    for b in behaviors_data:
+        if not b.get("name") or not b.get("description") or not b.get("criticality"):
+            typer.secho(
+                "feed: each behavior needs name, description, criticality",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(1)
+
+    now = datetime.now(UTC).isoformat()
+    conn = connect(resolve_db_path())
+    model = LocalEmbeddingModel()
+
+    # Embed behavior contents upfront (name\ndescription mirrors the Python pipeline).
+    contents = [f"{b['name']}\n{b['description']}" for b in behaviors_data]
+    behavior_vectors = model.encode(contents)
+
+    # Collect all rule texts and embed in one batch.
+    all_rule_texts: list[str] = []
+    rule_text_indices: list[list[int]] = []  # per behavior, index into all_rule_texts or -1
+    for b in behaviors_data:
+        idxs: list[int] = []
+        for r in b.get("rules", []):
+            if r.get("rule_text"):
+                idxs.append(len(all_rule_texts))
+                all_rule_texts.append(r["rule_text"])
+            else:
+                idxs.append(-1)
+        rule_text_indices.append(idxs)
+
+    rule_vectors = model.encode(all_rule_texts) if all_rule_texts else []
+
+    n_behaviors = 0
+    n_rules = 0
+    n_embeddings = 0
+
+    with conn:
+        source_id: str | None = None
+        src: Any = data.get("source")
+        if src:
+            source_id = str(uuid.uuid4())
+            conn.execute(
+                "INSERT INTO sources"
+                " (id, type, label, source_ref, sync_status, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, 'success', ?, ?)",
+                (
+                    source_id,
+                    src.get("type", "conversation"),
+                    src.get("label", "agent-extracted"),
+                    src.get("source_ref", "agent"),
+                    now,
+                    now,
+                ),
+            )
+
+        for i, b in enumerate(behaviors_data):
+            behavior_id = str(uuid.uuid4())
+            conn.execute(
+                """INSERT INTO behaviors
+                     (id, name, description, criticality, status, source_ids,
+                      confirmed_by_qa, qa_note, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)""",
+                (
+                    behavior_id,
+                    b["name"],
+                    b["description"],
+                    b["criticality"],
+                    json.dumps([source_id] if source_id else []),
+                    1 if b.get("confirmed_by_qa") else 0,
+                    b.get("qa_note"),
+                    now,
+                    now,
+                ),
+            )
+            n_behaviors += 1
+
+            vec_bytes = pack_vector(behavior_vectors[i])
+            conn.execute(
+                "INSERT INTO embeddings"
+                " (id, entity_type, entity_id, content, vector, model, created_at)"
+                " VALUES (?, 'behavior', ?, ?, ?, ?, ?)",
+                (str(uuid.uuid4()), behavior_id, contents[i], vec_bytes, DEFAULT_MODEL, now),
+            )
+            n_embeddings += 1
+
+            for j, r in enumerate(b.get("rules", [])):
+                if not r.get("rule_text"):
+                    continue
+                rule_id = str(uuid.uuid4())
+                conn.execute(
+                    """INSERT INTO rules
+                         (id, behavior_id, rule_text, confidence, source_excerpt, source_id,
+                          qa_override, override_reason, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        rule_id,
+                        behavior_id,
+                        r["rule_text"],
+                        r.get("confidence", 0.6),
+                        r.get("source_excerpt"),
+                        source_id,
+                        1 if r.get("qa_override") else 0,
+                        r.get("override_reason"),
+                        now,
+                        now,
+                    ),
+                )
+                n_rules += 1
+
+                rule_vec_idx = rule_text_indices[i][j]
+                if rule_vec_idx >= 0:
+                    rule_vec_bytes = pack_vector(rule_vectors[rule_vec_idx])
+                    conn.execute(
+                        """INSERT INTO embeddings
+                             (id, entity_type, entity_id, content, vector, model, created_at)
+                           VALUES (?, 'rule', ?, ?, ?, ?, ?)""",
+                        (
+                            str(uuid.uuid4()),
+                            rule_id,
+                            r["rule_text"],
+                            rule_vec_bytes,
+                            DEFAULT_MODEL,
+                            now,
+                        ),
+                    )
+                    n_embeddings += 1
+
+    typer.echo(f"fed: {n_behaviors} behaviors, {n_rules} rules, {n_embeddings} embeddings")
 
 
 @app.command()
