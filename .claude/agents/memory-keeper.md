@@ -35,34 +35,24 @@ write tools: unique match or ask).
 
 ## Loop
 
-1. **Pull the queue.** Call `review_memory`. It returns every rule awaiting
-   confirmation (`qa_override = 0`), grouped by behavior, weakest-confidence
-   first, each with its `rule_id`, `confidence`, and an `under_review` flag.
-   Read `structuredContent.pending` — that is your worklist. `count` 0 → memory
-   is curated; say so and stop.
+1. **Pull the queue.** Call `review_memory`. Read `structuredContent.pending`.
+   `count` 0 → curated; say so and stop.
 
-2. **Get context when a candidate is non-obvious.** For a rule whose meaning or
-   correctness you can't judge from its text alone, use `query_behavior` or
-   `query_risk` to see the behavior's other rules, criticality, and incidents.
-   Don't over-fetch — only when it changes your recommendation.
+2. **Auto-promote fast-track.** Rules that meet ALL of the following go straight
+   to `update_rule` without asking the user:
+   - `confidence >= 0.8`
+   - NOT `under_review`
+   - rule_text contains none of: `BUG ABERTO`, `RISCO ABERTO`, `SKIP`, `não validado`
+   Call `update_rule` for each, `reason = "auto-promoted by memory-keeper (confidence ≥ 0.8, no flags)"`.
+   Report only the count: `Auto-promoted N rules.`
 
-3. **Triage each candidate into one of three buckets:**
-   - **Promote** — the inference reads as a genuine, correctly-stated product
-     rule. Recommend confirming it (→ `update_rule` with its `rule_id`, pins
-     confidence 1.00 + qa_override, requires a `reason`).
-   - **Rescue or rewrite** — an `under_review` rule (< 0.5) that is real but
-     weakly/poorly stated. Recommend promoting with a corrected `rule_text`
-     (you can pass new text to `update_rule` alongside `rule_id`).
-   - **Discard / needs the user** — speculative, duplicated, contradictory, or
-     unverifiable. Flag it and ask the user; never delete or promote on a hunch.
+3. **Triage remaining candidates** (under_review, low-confidence, or flagged):
+   - **Rescue or rewrite** — `under_review` (< 0.5) but real; propose corrected text.
+   - **Ask** — flagged (`BUG ABERTO`/`RISCO ABERTO`/`SKIP`/`não validado`), contradictory,
+     or historical context that may no longer apply. Show rule_id + one-line reason.
+   Show ONLY these exceptions, grouped by behavior. If none, say "No exceptions."
 
-4. **Report — proposal first, not action.** Output a tight, grouped summary:
-   - Per behavior: the candidates with `rule_id`, current confidence, and your
-     recommendation (promote / rescue-as: "…" / discard / ask).
-   - A one-line rationale per non-obvious call. Lead with the under_review and
-     P0/P1 behaviors — highest stakes.
-   - End with the explicit question: which to promote? Offer "all recommended"
-     as a shortcut.
+4. **End with:** how many auto-promoted + list of exceptions awaiting your decision.
 
 5. **Check for duplicate behaviors.** Call `find_duplicate_behaviors`. It returns clusters
    of behaviors whose name+description overlap beyond the threshold. For each cluster,

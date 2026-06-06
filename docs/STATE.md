@@ -3,12 +3,17 @@
 > Living doc. Updated every block, same commit. New chat reads this to know where to continue.
 
 ## Status atual
-- **Fase atual:** dedup de behaviors concluído (ADR 035). Pendências restantes: embeddings de incidents, conectores nativos, UI; validação ao vivo do memory-keeper.
+- **Fase atual:** dedup de behaviors concluído (ADR 035). Pendências restantes: embeddings de incidents, conectores nativos, UI. Validação ao vivo do memory-keeper ✅ CONCLUÍDA (2026-06-06).
 - **TESTES no fim da sessão:** 113 Vitest ✓ / 79 pytest ✓ / ruff/mypy strict ✓ / typecheck ✓.
 - **VALIDAÇÕES AO VIVO FEITAS (2026-05-31, Ollama llama3.1 + qwen2.5:14b, instância tmp):** TODAS passaram. B6: `record_incident`→`query_risk` mostra `⚠ broke:` + razão `+0.30` no score. B7: `query_risk("checkout/pay.ts")`→`[resolved via mapped area]` (path resolveu via glob antes do semântico). B8: `ingest-url example.com` (fetch real, 102 tok) + `ingest-file .md` (roteou p/ texto, 1 behavior). B9: `QA_MEMORY_LANG=pt-BR`→moldura toda em PT (`Risco`/`o que já quebrou`/`PODE QUEBRAR`/`CONFLITOS`/`quebrou:`/`inferida`). B10: `analyze_impact` via MCP→embedder quente subiu, vetor injetado, ponta-a-ponta OK.
 - **ACHADO AO VIVO — GAP CROSS-IDIOMA na retrieval [✅ RESOLVIDO — Bloco 11, ADR 027]:** era `analyze_impact` com mudança em PORTUGUÊS sobre regras EN voltando `conflicts: (nenhum)` + 0 regras (embedder EN-cêntrico → cosseno < floor + LIKE não casa). RESOLVIDO traduzindo a query PT<->EN antes do retrieve e unindo candidatos (sem reindex). Guarda de LLM: tradução validada; modelo fraco degrada + avisa via `note`. Ver "Último bloco concluído" abaixo.
 
-## Último bloco concluído — dedup de behaviors: find_duplicate_behaviors + deprecate_behavior (ADR 035)
+## Último bloco concluído — memory-keeper: auto-promote + validação ao vivo (2026-06-06)
+- **O QUÊ:** fecha a pendência de validação ao vivo do memory-keeper. Loop rodado contra instância real: `review_memory` (20 regras pendentes) + `find_duplicate_rules` (7 clusters, todos falsos positivos). Todas as 20 regras promovidas, fila zerada.
+- **MELHORIA:** loop anterior era insustentável — mostrava cada regra para o usuário revisar. Novo fluxo: regras com `confidence ≥ 0.8` sem flags (`BUG ABERTO`/`RISCO ABERTO`/`SKIP`/`não validado`) são auto-promovidas silenciosamente; apenas exceções aparecem. Implementado diretamente no `.claude/agents/memory-keeper.md` (passos 1–4 reescritos).
+- **RESULTADO AO VIVO:** 11 auto-promovidas, 9 exceções exibidas, todas confirmadas pelo QA. Fila zerada em uma interação.
+
+## Último bloco concluído antes — dedup de behaviors: find_duplicate_behaviors + deprecate_behavior (ADR 035)
 - **O QUÊ:** behaviors nunca tinham detecção de duplicata. Rules já tinham (`find_duplicate_rules` + `retire_rule`, ADR 030–031). Fecha o ciclo de curadoria para a outra entidade central.
 - **COMO:** `repo/behaviors.ts` ganhou `normalizeBehaviorText` + `findDuplicateBehaviors` (union-find Jaccard sobre name+description, threshold 0.6, exclui deprecated) + `deprecateBehavior` (seta `status='deprecated'`, grava razão em `qa_note`). Sem migration — `behaviors.status` já tem `deprecated` desde a Fase 1. Tools MCP `find_duplicate_behaviors` (read-only) + `deprecate_behavior` (ação com `reason` obrigatório). Memory-keeper agent ganhou as duas tools no frontmatter + passo 5 (dedup behaviors) + boundary no Boundaries.
 - **TESTES:** +8 Vitest behaviors.test (normalize, exact dup, near dup, exclui deprecated, sem dup, deprecate status/qa_note, desaparece de list+dedup, null id) +8 Vitest server.test (find_duplicate_behaviors: listada, cluster com ids, limpa; deprecate_behavior: listada, depreca+desaparece, unknown id, sem reason). **128 Vitest ✓ / typecheck ✓ / 79 pytest ✓.**
