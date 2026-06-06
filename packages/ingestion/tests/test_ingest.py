@@ -55,13 +55,13 @@ def test_ingest_persists_source_behavior_rules_embedding() -> None:
     assert report.skipped is False
     assert report.behaviors == 1
     assert report.rules == 2
-    assert report.embeddings == 1
+    assert report.embeddings == 3  # 1 behavior + 2 rules
     assert report.tokens > 0
 
     assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 1
     assert conn.execute("SELECT COUNT(*) FROM behaviors").fetchone()[0] == 1
     assert conn.execute("SELECT COUNT(*) FROM rules").fetchone()[0] == 2
-    assert conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0] == 3
 
 
 def test_behavior_links_source_and_embedding_stored_as_blob() -> None:
@@ -72,14 +72,22 @@ def test_behavior_links_source_and_embedding_stored_as_blob() -> None:
     source_ids = conn.execute("SELECT source_ids FROM behaviors").fetchone()[0]
     assert src_id in source_ids  # JSON array carries the source id
 
-    et, eid, vec, model = conn.execute(
-        "SELECT entity_type, entity_id, vector, model FROM embeddings"
-    ).fetchone()
     beh_id = conn.execute("SELECT id FROM behaviors").fetchone()[0]
+    et, eid, vec, model = conn.execute(
+        "SELECT entity_type, entity_id, vector, model FROM embeddings WHERE entity_type = 'behavior'"
+    ).fetchone()
     assert et == "behavior"
     assert eid == beh_id
     assert isinstance(vec, bytes) and len(vec) == 12  # 3 float32
     assert model == "fake-embed"
+
+    # Rule embeddings: one per rule.
+    rule_rows = conn.execute(
+        "SELECT entity_type, entity_id FROM embeddings WHERE entity_type = 'rule'"
+    ).fetchall()
+    rule_ids = {r[0] for r in conn.execute("SELECT id FROM rules").fetchall()}
+    assert len(rule_rows) == 2
+    assert all(r[1] in rule_ids for r in rule_rows)
 
 
 def test_same_checksum_is_skipped_no_duplicate_rows() -> None:

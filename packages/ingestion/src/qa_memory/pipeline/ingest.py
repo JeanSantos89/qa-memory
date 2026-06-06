@@ -51,14 +51,31 @@ def ingest_doc(
     contents = [f"{b.name}\n{b.description}" for b in result.behaviors]
     vectors = embed_model.encode(contents)
 
+    # Collect all rule texts across behaviors for a single batch encode.
+    all_rule_texts: list[str] = []
+    for behavior in result.behaviors:
+        all_rule_texts.extend(behavior.rules)
+    rule_vectors = embed_model.encode(all_rule_texts) if all_rule_texts else []
+
     n_rules = 0
-    for behavior, content, vector in zip(result.behaviors, contents, vectors, strict=True):
+    rule_vec_offset = 0
+    for behavior, content, beh_vector in zip(result.behaviors, contents, vectors, strict=True):
         behavior_id = repo.insert_behavior(conn, behavior, source_id, now)
         for rule_text in behavior.rules:
-            repo.insert_rule(conn, behavior_id, rule_text, source_id, now=now)
+            rule_id = repo.insert_rule(conn, behavior_id, rule_text, source_id, now=now)
+            repo.insert_embedding(
+                conn,
+                "rule",
+                rule_id,
+                rule_text,
+                pack_vector(rule_vectors[rule_vec_offset]),
+                embed_model.name,
+                now,
+            )
+            rule_vec_offset += 1
             n_rules += 1
         repo.insert_embedding(
-            conn, "behavior", behavior_id, content, pack_vector(vector), embed_model.name, now
+            conn, "behavior", behavior_id, content, pack_vector(beh_vector), embed_model.name, now
         )
 
     conn.commit()
@@ -67,7 +84,7 @@ def ingest_doc(
         skipped=False,
         behaviors=len(result.behaviors),
         rules=n_rules,
-        embeddings=len(result.behaviors),
+        embeddings=len(result.behaviors) + len(all_rule_texts),
         tokens=result.usage.total,
         budget_exhausted=result.budget_exhausted,
     )

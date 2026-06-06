@@ -3,12 +3,17 @@
 > Living doc. Updated every block, same commit. New chat reads this to know where to continue.
 
 ## Status atual
-- **Fase atual:** i18n 2ª passada concluída (ADR 025 débito fechado) + comando `feed` no Python CLI. Pendências restantes: embeddings de incidents, conectores nativos, UI.
+- **Fase atual:** embeddings de rules no pipeline de ingestão LLM (ADR 034). Pendências restantes: embeddings de incidents, dedup de behaviors, conectores nativos, UI.
 - **TESTES no fim da sessão:** 113 Vitest ✓ / 79 pytest ✓ / ruff/mypy strict ✓ / typecheck ✓.
 - **VALIDAÇÕES AO VIVO FEITAS (2026-05-31, Ollama llama3.1 + qwen2.5:14b, instância tmp):** TODAS passaram. B6: `record_incident`→`query_risk` mostra `⚠ broke:` + razão `+0.30` no score. B7: `query_risk("checkout/pay.ts")`→`[resolved via mapped area]` (path resolveu via glob antes do semântico). B8: `ingest-url example.com` (fetch real, 102 tok) + `ingest-file .md` (roteou p/ texto, 1 behavior). B9: `QA_MEMORY_LANG=pt-BR`→moldura toda em PT (`Risco`/`o que já quebrou`/`PODE QUEBRAR`/`CONFLITOS`/`quebrou:`/`inferida`). B10: `analyze_impact` via MCP→embedder quente subiu, vetor injetado, ponta-a-ponta OK.
 - **ACHADO AO VIVO — GAP CROSS-IDIOMA na retrieval [✅ RESOLVIDO — Bloco 11, ADR 027]:** era `analyze_impact` com mudança em PORTUGUÊS sobre regras EN voltando `conflicts: (nenhum)` + 0 regras (embedder EN-cêntrico → cosseno < floor + LIKE não casa). RESOLVIDO traduzindo a query PT<->EN antes do retrieve e unindo candidatos (sem reindex). Guarda de LLM: tradução validada; modelo fraco degrada + avisa via `note`. Ver "Último bloco concluído" abaixo.
 
-## Último bloco concluído — i18n 2ª passada + CLI feed (débitos ADR 025 + pendência 2026-06-03)
+## Último bloco concluído — embeddings de rules no ingest_doc (ADR 034)
+- **O QUÊ:** `ingest_doc` (pipeline LLM) não embedava rules — só behaviors. O lado TS (`search.ts` + `listRuleEmbeddings`) já estava pronto para consumir vetores de rules, mas o Python nunca os gravava via ingestão LLM. `feed` (CLI sem LLM) já embedava rules corretamente desde o ADR 033.
+- **COMO:** `pipeline/ingest.py` coleta todos os rule_texts de todos os behaviors antes do loop principal, batch-encode em uma chamada (`embed_model.encode`), depois no loop insere o embedding `entity_type='rule'` para cada rule. `IngestReport.embeddings` agora conta behaviors + rules. Sem mudança de schema ou deps.
+- **TESTES:** `test_ingest_persists_source_behavior_rules_embedding` atualizado (embeddings=3, rows=3). `test_behavior_links_source_and_embedding_stored_as_blob` ganhou asserção de rule embeddings + WHERE na query de behavior. **79 pytest ✓ / ruff ✓ / mypy ✓ / 113 Vitest ✓.**
+
+## Último bloco concluído antes — i18n 2ª passada + CLI feed (débitos ADR 025 + pendência 2026-06-03)
 - **O QUÊ:** fecha dois débitos de baixo valor: (1) strings hardcoded EN em `prompts.ts`/`cli.ts` — títulos e descrições dos MCP prompts + mensagem de erro do `feed`; (2) comando `qa-memory feed` no Python CLI (antes só existia no TS CLI).
 - **COMO i18n:** `i18n.ts` ganhou 5 labels (`promptGettingStartedTitle/Desc`, `promptAssessChangeTitle/Desc`, `feedInvalidJson`). `prompts.ts` resolve labels no início de `registerPrompts` e usa nos títulos de registro. `cli.ts` usa `getLabels().feedInvalidJson` no catch do parse JSON.
 - **COMO feed Python:** novo `@app.command() feed()` em `cli.py`. Lê JSON do stdin, sem LLM — Claude age como extrator e passa o JSON estruturado. Embeda behaviors e rules com `LocalEmbeddingModel` local (all-MiniLM-L6-v2). Mesma semântica do `feedKnowledge` TS: source opcional, behaviors com rules, defaults idênticos (confidence 0.6, status active).
