@@ -1,12 +1,14 @@
 """CLI — `qa-memory` (ingestion side). Typer app.
 
 Commands:
-  ingest <pdf>        extract → chunk → two-pass → embed → persist into SQLite
-  ingest-text <text>  ingest raw text (agent-fed content); '-' reads stdin
-  ingest-file <path>  ingest a local file, routed by extension (.pdf else text)
-  ingest-url <url>    fetch a public URL (stdlib, no auth) and ingest its text
-  status              show DB path + row counts
-  embed <text>        print the float32 embedding vector as JSON (for the MCP query path)
+  ingest <pdf>            extract → chunk → two-pass → embed → persist into SQLite
+  ingest-text <text>      ingest raw text (agent-fed content); '-' reads stdin
+  ingest-file <path>      ingest a local file, routed by extension (.pdf else text)
+  ingest-url <url>        fetch a public URL (stdlib, no auth) and ingest its text
+  ingest-jira <key>       fetch a Jira issue via REST API and ingest its text
+  ingest-confluence <id>  fetch a Confluence page via REST API and ingest its text
+  status                  show DB path + row counts
+  embed <text>            print the float32 embedding vector as JSON (for the MCP query path)
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from qa_memory.pipeline.extractor import TwoPassExtractor
 from qa_memory.pipeline.impact import analyze_impact
 from qa_memory.pipeline.ingest import ingest_doc
 from qa_memory.pipeline.llm import make_llm_client
+from qa_memory.sources.atlassian import ConfluenceSource, JiraSource
 from qa_memory.sources.base import ExtractedDoc
 from qa_memory.sources.pdf import PdfSource
 from qa_memory.sources.router import source_for_path
@@ -119,6 +122,58 @@ def ingest_url(
     if not doc.text.strip():
         typer.secho(f"no text extracted from {url}", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
+    _ingest_and_report(doc, budget)
+
+
+@app.command(name="ingest-jira")
+def ingest_jira(
+    key: Annotated[str, typer.Argument(help="Jira issue key, e.g. PROJ-123")],
+    label: Annotated[
+        str | None, typer.Option(help="Human label (defaults to the issue key)")
+    ] = None,
+    budget: Annotated[int, typer.Option(help="Token budget for this run")] = 50_000,
+) -> None:
+    """Fetch a Jira issue via REST API and ingest its text.
+
+    Requires env vars: ATLASSIAN_BASE_URL, ATLASSIAN_EMAIL, ATLASSIAN_API_TOKEN.
+    For private pages already fetched by another tool, use ingest-text instead."""
+    import urllib.error
+
+    try:
+        doc = JiraSource(key, label=label).extract()
+    except RuntimeError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from None
+    except (urllib.error.URLError, OSError) as exc:
+        typer.secho(f"fetch failed: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from None
+    _ingest_and_report(doc, budget)
+
+
+@app.command(name="ingest-confluence")
+def ingest_confluence(
+    page: Annotated[
+        str,
+        typer.Argument(help="Confluence page ID (numeric) or full page URL"),
+    ],
+    label: Annotated[str | None, typer.Option(help="Human label (defaults to page title)")] = None,
+    budget: Annotated[int, typer.Option(help="Token budget for this run")] = 50_000,
+) -> None:
+    """Fetch a Confluence page via REST API and ingest its text.
+
+    Accepts a numeric page ID or a full Confluence URL (the page ID is extracted
+    from the URL automatically). Requires env vars: ATLASSIAN_BASE_URL,
+    ATLASSIAN_EMAIL, ATLASSIAN_API_TOKEN."""
+    import urllib.error
+
+    try:
+        doc = ConfluenceSource(page, label=label).extract()
+    except (RuntimeError, ValueError) as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from None
+    except (urllib.error.URLError, OSError) as exc:
+        typer.secho(f"fetch failed: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from None
     _ingest_and_report(doc, budget)
 
 

@@ -15,6 +15,10 @@ export interface Ingester {
   ingestPath(path: string, opts: { label?: string }): IngestResult;
   // Fetch + ingest a public URL (server-side stdlib fetch, no auth).
   ingestUrl(url: string, opts: { label?: string }): IngestResult;
+  // Fetch + ingest a Jira issue via REST API (requires ATLASSIAN_* env vars).
+  ingestJira(key: string, opts: { label?: string }): IngestResult;
+  // Fetch + ingest a Confluence page via REST API (requires ATLASSIAN_* env vars).
+  ingestConfluence(pageIdOrUrl: string, opts: { label?: string }): IngestResult;
 }
 
 // Base command. Default: `uv run qa-memory`; the subcommand (ingest-text /
@@ -83,5 +87,15 @@ export class PythonIngester implements Ingester {
   ingestUrl(url: string, opts: { label?: string }): IngestResult {
     const args = [url, ...(opts.label ? ["--label", opts.label] : [])];
     return this.run("ingest-url", args);
+  }
+
+  ingestJira(key: string, opts: { label?: string }): IngestResult {
+    const args = [key, ...(opts.label ? ["--label", opts.label] : [])];
+    return this.run("ingest-jira", args);
+  }
+
+  ingestConfluence(pageIdOrUrl: string, opts: { label?: string }): IngestResult {
+    const args = [pageIdOrUrl, ...(opts.label ? ["--label", opts.label] : [])];
+    return this.run("ingest-confluence", args);
   }
 }

@@ -3,8 +3,13 @@
 > Living doc. Updated every block, same commit. New chat reads this to know where to continue.
 
 ## Status atual
-- **Fase atual:** 6 gaps críticos de qualidade fechados (ADR 036): cross-idioma em query_risk/query_behavior, confirm_behavior tool, analyze_impact path resolution, incident embeddings async. Pendências restantes: conectores nativos, UI.
-- **TESTES no fim da sessão:** 139 Vitest ✓ / 79 pytest ✓ / ruff/mypy strict ✓ / typecheck ✓.
+- **Fase atual:** Conectores nativos Jira + Confluence implementados (ADR 037). Pendências restantes: embeddings de incidents via pipeline LLM, UI.
+- **TESTES no fim da sessão:** 147 Vitest ✓ / 98 pytest ✓ / ruff/mypy strict ✓ / typecheck ✓.
+
+## Último bloco concluído — conectores nativos Jira + Confluence (ADR 037, 2026-06-07)
+- **O QUÊ:** elimina o fluxo manual de 2-3 etapas (fetch via MCP Atlassian → extrai → feed). Uma chamada MCP `ingest_jira("PROJ-123")` ou `ingest_confluence("123456")` faz fetch + extração LLM ponta a ponta. `feed_to_memory` continua preferível quando o conteúdo já está em contexto (zero LLM).
+- **COMO:** `sources/atlassian.py` — `JiraSource` + `ConfluenceSource` (stdlib urllib, Basic auth base64, sem nova dep). `_strip_html` reutiliza abordagem do `UrlSource`. `_adf_to_text` converte ADF do Jira. `_extract_page_id` aceita ID numérico ou URL. Auth via env `ATLASSIAN_BASE_URL`/`ATLASSIAN_EMAIL`/`ATLASSIAN_API_TOKEN` (git-ignored). CLI `ingest-jira`/`ingest-confluence`. TS: interface `Ingester` + `PythonIngester` + tools MCP `ingest_jira`/`ingest_confluence`.
+- **TESTES:** +19 pytest (atlassian_source: auth, html, ADF, env, page_id, JiraSource extract/label/checksum, ConfluenceSource extract/label/url) +8 Vitest server.test (ingest_jira: listed, routes, label, failure; ingest_confluence: listed, routes, url, failure). **147 Vitest ✓ / 98 pytest ✓ / ruff ✓ / mypy ✓ / typecheck ✓.**
 - **VALIDAÇÕES AO VIVO FEITAS (2026-05-31, Ollama llama3.1 + qwen2.5:14b, instância tmp):** TODAS passaram. B6: `record_incident`→`query_risk` mostra `⚠ broke:` + razão `+0.30` no score. B7: `query_risk("checkout/pay.ts")`→`[resolved via mapped area]` (path resolveu via glob antes do semântico). B8: `ingest-url example.com` (fetch real, 102 tok) + `ingest-file .md` (roteou p/ texto, 1 behavior). B9: `QA_MEMORY_LANG=pt-BR`→moldura toda em PT (`Risco`/`o que já quebrou`/`PODE QUEBRAR`/`CONFLITOS`/`quebrou:`/`inferida`). B10: `analyze_impact` via MCP→embedder quente subiu, vetor injetado, ponta-a-ponta OK.
 - **ACHADO AO VIVO — GAP CROSS-IDIOMA na retrieval [✅ RESOLVIDO — Bloco 11, ADR 027]:** era `analyze_impact` com mudança em PORTUGUÊS sobre regras EN voltando `conflicts: (nenhum)` + 0 regras (embedder EN-cêntrico → cosseno < floor + LIKE não casa). RESOLVIDO traduzindo a query PT<->EN antes do retrieve e unindo candidatos (sem reindex). Guarda de LLM: tradução validada; modelo fraco degrada + avisa via `note`. Ver "Último bloco concluído" abaixo.
 
@@ -182,7 +187,7 @@ Ordem pensada p/ maximizar valor de QA por bloco, mantendo a regra "1 bloco = un
 ### Futuro (sem bloco ainda — depende de prioridade do usuário)
 - **Subagent/skill "memory-keeper"** automatizado (cuida da memória sozinho — sync, dedup, confirma inferências; hoje regras entram como inferred 0.60 e ninguém promove a QA-confirmed). É a inteligência no AGENTE (ADR 014), não em conector. **EM ANDAMENTO:** Bloco 1 CONCLUÍDO (ADR 028) — tool `review_memory` dá a worklist. Bloco 2 CONCLUÍDO (ADR 029) — o AGENTE `.claude/agents/memory-keeper.md` orquestra o loop ver→propor→(aval do usuário)→`update_rule`. Bloco 3 CONCLUÍDO (ADR 030) — `find_duplicate_rules` (dedup lexical). Bloco 4 CONCLUÍDO (ADR 031, migration 002) — `retire_rule` + `rules.status`; dedup ponta-a-ponta (detectar→propor→aprovar→aposentar). **Ciclo de curadoria completo.** Candidatos restantes (sem bloco): embeddings de rules, dedup de behaviors, **validação ao vivo do agente** (exige MCP `qa-memory` conectado).
 - **Embeddings de rules/incidents** (hoje só behaviors são embedados) — melhora recall quando o volume crescer.
-- **Conectores nativos + scheduler** (Jira/Confluence/Drive, Atlassian token). Hoje é agente-alimentado por decisão (ADR 014); nativo só quando o subagent existir.
+- ~~**Conectores nativos Jira + Confluence**~~ — concluído (ADR 037). Drive/outros conectores: futuro se necessário.
 - ~~**i18n 2ª passada**~~ — concluído neste bloco.
 - **UI dedicada (C)** — ADIADA, só se não-técnico virar prioridade (usuário avisa).
 

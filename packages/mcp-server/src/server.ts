@@ -709,6 +709,80 @@ export function createServer(
   );
 
   server.registerTool(
+    "ingest_jira",
+    {
+      title: "Ingest a Jira issue into qa-memory",
+      description:
+        "Fetch a Jira issue by key (e.g. PROJ-123) and run it through the full extraction pipeline " +
+        "(LLM two-pass → behaviors + rules → local embeddings). " +
+        "Requires ATLASSIAN_BASE_URL, ATLASSIAN_EMAIL, and ATLASSIAN_API_TOKEN env vars on the server. " +
+        "Use feed_to_memory instead if you have already read the issue and want zero LLM cost.",
+      inputSchema: {
+        key: z.string().describe("Jira issue key, e.g. PROJ-123"),
+        label: z.string().optional().describe("Human label for this source (defaults to the issue key)"),
+      },
+    },
+    (args: { key: string; label?: string }) => {
+      if (!args.key.trim()) {
+        return {
+          content: [{ type: "text" as const, text: "Provide a `key` (e.g. PROJ-123)." }],
+          structuredContent: { ok: false, message: "missing key" },
+        };
+      }
+      const result = ingester.ingestJira(args.key.trim(), { label: args.label });
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: result.ok
+              ? `Ingested Jira issue ${args.key}. ${result.message}`
+              : `Could not ingest ${args.key}: ${result.message}`,
+          },
+        ],
+        structuredContent: { ok: result.ok, message: result.message },
+      };
+    },
+  );
+
+  server.registerTool(
+    "ingest_confluence",
+    {
+      title: "Ingest a Confluence page into qa-memory",
+      description:
+        "Fetch a Confluence page by numeric ID or full URL and run it through the full extraction pipeline " +
+        "(LLM two-pass → behaviors + rules → local embeddings). " +
+        "Requires ATLASSIAN_BASE_URL, ATLASSIAN_EMAIL, and ATLASSIAN_API_TOKEN env vars on the server. " +
+        "Use feed_to_memory instead if you have already read the page and want zero LLM cost.",
+      inputSchema: {
+        page: z
+          .string()
+          .describe("Confluence page numeric ID or full page URL (the ID is extracted automatically)"),
+        label: z.string().optional().describe("Human label for this source (defaults to the page title)"),
+      },
+    },
+    (args: { page: string; label?: string }) => {
+      if (!args.page.trim()) {
+        return {
+          content: [{ type: "text" as const, text: "Provide a `page` (numeric ID or URL)." }],
+          structuredContent: { ok: false, message: "missing page" },
+        };
+      }
+      const result = ingester.ingestConfluence(args.page.trim(), { label: args.label });
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: result.ok
+              ? `Ingested Confluence page. ${result.message}`
+              : `Could not ingest page: ${result.message}`,
+          },
+        ],
+        structuredContent: { ok: result.ok, message: result.message },
+      };
+    },
+  );
+
+  server.registerTool(
     "analyze_impact",
     {
       title: "Analyze the impact of a proposed change",

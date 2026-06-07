@@ -37,7 +37,9 @@ const okAnalysis: ImpactAnalysis = {
 type IngestCall =
   | { kind: "text"; text: string; label: string; sourceType: string }
   | { kind: "path"; path: string; label?: string }
-  | { kind: "url"; url: string; label?: string };
+  | { kind: "url"; url: string; label?: string }
+  | { kind: "jira"; key: string; label?: string }
+  | { kind: "confluence"; pageIdOrUrl: string; label?: string };
 
 function spyIngester(result: IngestResult): Ingester & { last?: IngestCall } {
   const spy: Ingester & { last?: IngestCall } = {
@@ -51,6 +53,14 @@ function spyIngester(result: IngestResult): Ingester & { last?: IngestCall } {
     },
     ingestUrl(url, opts) {
       spy.last = { kind: "url", url, ...opts };
+      return result;
+    },
+    ingestJira(key, opts) {
+      spy.last = { kind: "jira", key, ...opts };
+      return result;
+    },
+    ingestConfluence(pageIdOrUrl, opts) {
+      spy.last = { kind: "confluence", pageIdOrUrl, ...opts };
       return result;
     },
   };
@@ -833,5 +843,86 @@ describe("guided surface (Block B)", () => {
       arguments: { query: "anything" },
     })) as { content: Array<{ text: string }> };
     expect(res.content[0]?.text).toContain("qa-memory is empty");
+  });
+});
+
+describe("ingest_jira tool over MCP", () => {
+  it("is listed", async () => {
+    const client = await connectedClient();
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name)).toContain("ingest_jira");
+  });
+
+  it("routes to ingestJira with the issue key", async () => {
+    const spy = spyIngester({ ok: true, message: "ingested PROJ-42: 2 behaviors" });
+    const client = await connectedClient(spy);
+    const res = (await client.callTool({
+      name: "ingest_jira",
+      arguments: { key: "PROJ-42" },
+    })) as { content: Array<{ text: string }>; structuredContent?: { ok: boolean } };
+
+    expect(spy.last).toMatchObject({ kind: "jira", key: "PROJ-42" });
+    expect(res.content[0]?.text).toContain("PROJ-42");
+    expect(res.structuredContent?.ok).toBe(true);
+  });
+
+  it("passes optional label to ingestJira", async () => {
+    const spy = spyIngester({ ok: true, message: "ok" });
+    const client = await connectedClient(spy);
+    await client.callTool({ name: "ingest_jira", arguments: { key: "PROJ-1", label: "My issue" } });
+    expect(spy.last).toMatchObject({ kind: "jira", key: "PROJ-1", label: "My issue" });
+  });
+
+  it("reports failure when ingester returns ok=false", async () => {
+    const spy = spyIngester({ ok: false, message: "missing env vars: ATLASSIAN_BASE_URL" });
+    const client = await connectedClient(spy);
+    const res = (await client.callTool({
+      name: "ingest_jira",
+      arguments: { key: "PROJ-99" },
+    })) as { content: Array<{ text: string }>; structuredContent?: { ok: boolean } };
+
+    expect(res.content[0]?.text).toContain("Could not ingest");
+    expect(res.structuredContent?.ok).toBe(false);
+  });
+});
+
+describe("ingest_confluence tool over MCP", () => {
+  it("is listed", async () => {
+    const client = await connectedClient();
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name)).toContain("ingest_confluence");
+  });
+
+  it("routes to ingestConfluence with the page ID", async () => {
+    const spy = spyIngester({ ok: true, message: "ingested Cancellation policy: 1 behavior" });
+    const client = await connectedClient(spy);
+    const res = (await client.callTool({
+      name: "ingest_confluence",
+      arguments: { page: "123456" },
+    })) as { content: Array<{ text: string }>; structuredContent?: { ok: boolean } };
+
+    expect(spy.last).toMatchObject({ kind: "confluence", pageIdOrUrl: "123456" });
+    expect(res.content[0]?.text).toContain("Ingested Confluence page");
+    expect(res.structuredContent?.ok).toBe(true);
+  });
+
+  it("accepts a full URL as the page argument", async () => {
+    const spy = spyIngester({ ok: true, message: "ok" });
+    const client = await connectedClient(spy);
+    const url = "https://co.atlassian.net/wiki/spaces/PROJ/pages/789012/Policy";
+    await client.callTool({ name: "ingest_confluence", arguments: { page: url } });
+    expect(spy.last).toMatchObject({ kind: "confluence", pageIdOrUrl: url });
+  });
+
+  it("reports failure when ingester returns ok=false", async () => {
+    const spy = spyIngester({ ok: false, message: "fetch failed: 403" });
+    const client = await connectedClient(spy);
+    const res = (await client.callTool({
+      name: "ingest_confluence",
+      arguments: { page: "999" },
+    })) as { content: Array<{ text: string }>; structuredContent?: { ok: boolean } };
+
+    expect(res.content[0]?.text).toContain("Could not ingest page");
+    expect(res.structuredContent?.ok).toBe(false);
   });
 });
