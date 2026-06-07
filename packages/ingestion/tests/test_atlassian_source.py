@@ -4,7 +4,6 @@ exercised directly; live network calls are not made in tests."""
 from __future__ import annotations
 
 import json
-from io import BytesIO
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -19,7 +18,6 @@ from qa_memory.sources.atlassian import (
     _strip_html,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
@@ -33,7 +31,10 @@ def test_basic_auth_encodes_correctly() -> None:
 
 
 def test_strip_html_removes_script_and_style() -> None:
-    html = "<html><head><style>.x{}</style></head><body><script>x()</script><p>Hello world</p></body></html>"
+    html = (
+        "<html><head><style>.x{}</style></head>"
+        "<body><script>x()</script><p>Hello world</p></body></html>"
+    )
     text = _strip_html(html)
     assert "Hello world" in text
     assert "x()" not in text
@@ -205,7 +206,9 @@ _CONFLUENCE_RESPONSE = {
 }
 
 
-def _make_confluence_source(monkeypatch: pytest.MonkeyPatch, page: str = "123456") -> ConfluenceSource:
+def _make_confluence_source(
+    monkeypatch: pytest.MonkeyPatch, page: str = "123456"
+) -> ConfluenceSource:
     monkeypatch.setenv("ATLASSIAN_BASE_URL", "https://co.atlassian.net")
     monkeypatch.setenv("ATLASSIAN_EMAIL", "qa@co.com")
     monkeypatch.setenv("ATLASSIAN_API_TOKEN", "tok")
