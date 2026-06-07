@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── TypeScript MCP server ──────────────────────────────────────────────────
+  mcp-server:
+    name: MCP server (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: ["20"]
+
+    defaults:
+      run:
+        working-directory: packages/mcp-server
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+          cache-dependency-path: packages/mcp-server/pnpm-lock.yaml
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Tests
+        run: pnpm test
+
+  # ── Python ingestion pipeline ──────────────────────────────────────────────
+  ingestion:
+    name: Ingestion (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11"]
+
+    defaults:
+      run:
+        working-directory: packages/ingestion
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Cache HuggingFace model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-all-minilm-l6-v2
+
+      - name: Install deps
+        run: uv sync --group dev
+
+      - name: Lint (ruff)
+        run: uv run ruff check src tests
+
+      - name: Type check (mypy)
+        run: uv run mypy
+
+      - name: Tests
+        run: uv run pytest --tb=short
+        env:
+          QA_MEMORY_LLM: anthropic
