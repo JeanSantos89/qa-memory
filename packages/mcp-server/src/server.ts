@@ -429,7 +429,7 @@ export function createServer(
               text:
                 countBehaviors(db) === 0
                   ? emptyStateHint()
-                  : "Nothing awaiting confirmation — every rule is QA-confirmed.",
+                  : L.reviewMemoryEmpty,
             },
           ],
           structuredContent: { count: 0, total: all.length, pending: [] },
@@ -454,7 +454,7 @@ export function createServer(
           const head = `${group[0]!.behavior_criticality} ${group[0]!.behavior_name}`;
           const lines = group
             .map((p) => {
-              const flag = p.under_review ? ", UNDER REVIEW" : "";
+              const flag = p.under_review ? `, ${L.reviewMemoryUnderReview}` : "";
               return `  - "${p.rule.rule_text}" [conf ${p.rule.confidence.toFixed(2)}${flag}, id ${p.rule.id}]`;
             })
             .join("\n");
@@ -462,10 +462,9 @@ export function createServer(
         })
         .join("\n\n");
 
-      const truncated = all.length > pending.length ? ` (showing ${pending.length})` : "";
-      const header = `${all.length} rule(s) awaiting QA confirmation${truncated}:`;
-      const footer =
-        "To promote: confirm with the user, then call update_rule with the rule_id (pins it QA-confirmed, confidence 1.00).";
+      const truncated = all.length > pending.length ? pending.length : null;
+      const header = L.reviewMemoryHeader(all.length, truncated);
+      const footer = L.reviewMemoryFooter;
 
       return {
         content: [{ type: "text" as const, text: `${header}\n\n${blocks}\n\n${footer}` }],

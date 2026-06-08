@@ -3,8 +3,12 @@
 > Living doc. Updated every block, same commit. New chat reads this to know where to continue.
 
 ## Status atual
-- **Fase atual:** Conectores nativos Jira + Confluence implementados (ADR 037). Pendências restantes: embeddings de incidents via pipeline LLM, UI.
-- **TESTES no fim da sessão:** 147 Vitest ✓ / 98 pytest ✓ / ruff/mypy strict ✓ / typecheck ✓.
+- **Fase atual:** 3 débitos técnicos resolvidos (2026-06-08): SEMANTIC_FLOOR via env, i18n review_memory, glob {a,b}+negação. UI e tooling de manutenção permanecem como futuro.
+- **TESTES no fim da sessão:** 152 Vitest ✓ / 98 pytest ✓ / ruff/mypy strict ✓ / typecheck ✓.
+
+## Último bloco concluído — 3 débitos técnicos (2026-06-08)
+- **O QUÊ:** (1) `QA_MEMORY_SEMANTIC_FLOOR` env var — floor configurável sem restart, leitura inline p/ teste funcionar. (2) i18n de `review_memory` — header/footer/flag "UNDER REVIEW"/"EM REVISÃO" agora seguem `QA_MEMORY_LANG`. (3) `globToRegExp` suporta `{a,b,c}` (alternação) e `!` prefixo (negação). `matchesGlob` transparente ao chamador.
+- **TESTES:** +2 search (floor alto filtra, env inválido usa default) +2 areas (brace expansion, negação) +1 i18n (reviewMemory labels EN+PT). **152 Vitest ✓ / typecheck ✓ / 98 pytest ✓ (intacto).**
 
 ## Último bloco concluído — conectores nativos Jira + Confluence (ADR 037, 2026-06-07)
 - **O QUÊ:** elimina o fluxo manual de 2-3 etapas (fetch via MCP Atlassian → extrai → feed). Uma chamada MCP `ingest_jira("PROJ-123")` ou `ingest_confluence("123456")` faz fetch + extração LLM ponta a ponta. `feed_to_memory` continua preferível quando o conteúdo já está em contexto (zero LLM).

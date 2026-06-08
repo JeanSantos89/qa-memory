@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { openDb } from "./db/index.js";
 import { insertBehavior } from "./repo/behaviors.js";
 import { insertRule } from "./repo/rules.js";
@@ -92,6 +92,27 @@ describe("searchBehaviors — rule-level semantic hits", () => {
 
     const results = await searchBehaviors(db, fixed([1, 0, 0]), "zzz");
     expect(results[0]?.name).toBe("Auth");
+  });
+});
+
+describe("QA_MEMORY_SEMANTIC_FLOOR env override", () => {
+  afterEach(() => { delete process.env.QA_MEMORY_SEMANTIC_FLOOR; });
+
+  it("higher floor filters out low-cosine results", async () => {
+    const db = openDb(":memory:");
+    seedWithVector(db, "Checkout", [1, 0, 0]);
+    // cosine([0.3,0.95,0],[1,0,0]) ≈ 0.30 — passes default floor 0.25, blocked by 0.5
+    process.env.QA_MEMORY_SEMANTIC_FLOOR = "0.5";
+    const results = await searchBehaviors(db, fixed([0.3, 0.95, 0]), "zzz-no-lexical-match");
+    expect(results).toHaveLength(0);
+  });
+
+  it("invalid env value falls back to default 0.25", async () => {
+    const db = openDb(":memory:");
+    seedWithVector(db, "Checkout", [1, 0, 0]);
+    process.env.QA_MEMORY_SEMANTIC_FLOOR = "not-a-number";
+    const results = await searchBehaviors(db, fixed([0.9, 0.1, 0]), "zzz-no-lexical-match");
+    expect(results.map((b) => b.name)).toEqual(["Checkout"]);
   });
 });
 

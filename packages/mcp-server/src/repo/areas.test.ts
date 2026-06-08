@@ -28,6 +28,17 @@ describe("matchesGlob", () => {
     expect(matchesGlob("a.b.ts", "axbxts")).toBe(false);
     expect(matchesGlob("a.b.ts", "a.b.ts")).toBe(true);
   });
+
+  it("{a,b} brace expansion matches any arm", () => {
+    expect(matchesGlob("src/{foo,bar}.ts", "src/foo.ts")).toBe(true);
+    expect(matchesGlob("src/{foo,bar}.ts", "src/bar.ts")).toBe(true);
+    expect(matchesGlob("src/{foo,bar}.ts", "src/baz.ts")).toBe(false);
+  });
+
+  it("leading ! negates the pattern", () => {
+    expect(matchesGlob("!checkout/*.ts", "checkout/page.ts")).toBe(false);
+    expect(matchesGlob("!checkout/*.ts", "payment/page.ts")).toBe(true);
+  });
 });
 
 describe("behaviorIdsForPath", () => {

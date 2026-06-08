@@ -46,4 +46,18 @@ describe("getLabels", () => {
     expect(getLabels({}).feedInvalidJson("oops")).toContain("invalid JSON");
     expect(getLabels({ QA_MEMORY_LANG: "pt-BR" }).feedInvalidJson("oops")).toContain("inválido");
   });
+
+  it("reviewMemory labels are localized", () => {
+    const en = getLabels({});
+    expect(en.reviewMemoryHeader(5, null)).toContain("5 rule(s) awaiting");
+    expect(en.reviewMemoryHeader(5, 3)).toContain("showing 3");
+    expect(en.reviewMemoryUnderReview).toBe("UNDER REVIEW");
+    expect(en.reviewMemoryEmpty).toContain("Nothing awaiting");
+
+    const pt = getLabels({ QA_MEMORY_LANG: "pt-BR" });
+    expect(pt.reviewMemoryHeader(5, null)).toContain("5 regra(s) aguardando");
+    expect(pt.reviewMemoryHeader(5, 3)).toContain("exibindo 3");
+    expect(pt.reviewMemoryUnderReview).toBe("EM REVISÃO");
+    expect(pt.reviewMemoryEmpty).toContain("Nada aguardando");
+  });
 });

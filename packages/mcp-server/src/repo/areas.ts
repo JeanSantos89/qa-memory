@@ -42,32 +42,54 @@ function escapeRegex(s: string): string {
 
 // Compiles a glob into an anchored RegExp. Path separators are normalized to
 // "/" so a Windows path and a POSIX pattern still meet. `**` crosses segments,
-// `*` stays within one, `?` is a single non-separator char.
-export function globToRegExp(pattern: string): RegExp {
-  const normalized = pattern.replace(/\\/g, "/");
-  let re = "";
-  for (let i = 0; i < normalized.length; i++) {
-    const c = normalized[i]!;
-    if (c === "*") {
-      if (normalized[i + 1] === "*") {
-        re += ".*"; // ** — across separators
-        i++;
-        if (normalized[i + 1] === "/") i++; // swallow the slash after **
+// `*` stays within one, `?` is one non-separator char. `{a,b,c}` expands to
+// alternation. Leading `!` negates (returns a pattern that never matches the
+// path, signaling the caller to invert; callers should use matchesGlob which
+// handles negation transparently).
+export function globToRegExp(pattern: string): { re: RegExp; negated: boolean } {
+  const negated = pattern.startsWith("!");
+  const src = negated ? pattern.slice(1) : pattern;
+  const normalized = src.replace(/\\/g, "/");
+
+  function compile(s: string): string {
+    let re = "";
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i]!;
+      if (c === "*") {
+        if (s[i + 1] === "*") {
+          re += ".*";
+          i++;
+          if (s[i + 1] === "/") i++;
+        } else {
+          re += "[^/]*";
+        }
+      } else if (c === "?") {
+        re += "[^/]";
+      } else if (c === "{") {
+        // Expand {a,b,c} into (?:a|b|c). Supports nested patterns inside arms.
+        const close = s.indexOf("}", i + 1);
+        if (close === -1) {
+          re += escapeRegex(c); // malformed brace — treat literally
+        } else {
+          const arms = s.slice(i + 1, close).split(",").map(compile);
+          re += `(?:${arms.join("|")})`;
+          i = close;
+        }
       } else {
-        re += "[^/]*"; // * — within a segment
+        re += escapeRegex(c);
       }
-    } else if (c === "?") {
-      re += "[^/]";
-    } else {
-      re += escapeRegex(c);
     }
+    return re;
   }
-  return new RegExp(`^${re}$`);
+
+  return { re: new RegExp(`^${compile(normalized)}$`), negated };
 }
 
-// True if filePath matches the glob (both normalized to "/").
+// True if filePath matches the glob (both normalized to "/"). Handles negation.
 export function matchesGlob(pattern: string, filePath: string): boolean {
-  return globToRegExp(pattern).test(filePath.replace(/\\/g, "/"));
+  const { re, negated } = globToRegExp(pattern);
+  const match = re.test(filePath.replace(/\\/g, "/"));
+  return negated ? !match : match;
 }
 
 export interface NewArea {

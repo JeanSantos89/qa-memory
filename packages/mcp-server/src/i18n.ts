@@ -47,6 +47,11 @@ export interface Labels {
   embedderUnavailable: string;
   feedInvalidJson: (msg: string) => string;
   usage: string;
+  // review_memory frame
+  reviewMemoryHeader: (total: number, showing: number | null) => string;
+  reviewMemoryUnderReview: string;
+  reviewMemoryFooter: string;
+  reviewMemoryEmpty: string;
   // prompts registration metadata
   promptGettingStartedTitle: string;
   promptGettingStartedDesc: string;
@@ -126,6 +131,14 @@ const EN: Labels = {
     "  feed             read structured knowledge JSON from stdin and persist it",
     "                   (no-LLM: caller is the extractor; local embeddings added)",
   ].join("\n"),
+  reviewMemoryHeader: (total, showing) =>
+    showing !== null
+      ? `${total} rule(s) awaiting QA confirmation (showing ${showing}):`
+      : `${total} rule(s) awaiting QA confirmation:`,
+  reviewMemoryUnderReview: "UNDER REVIEW",
+  reviewMemoryFooter:
+    "To promote: confirm with the user, then call update_rule with the rule_id (pins it QA-confirmed, confidence 1.00).",
+  reviewMemoryEmpty: "Nothing awaiting confirmation — every rule is QA-confirmed.",
   promptGettingStartedTitle: "Getting started with qa-memory",
   promptGettingStartedDesc: "Learn what qa-memory is and the first thing to do.",
   promptAssessChangeTitle: "Assess a change before testing",
@@ -208,6 +221,14 @@ const PT_BR: Labels = {
     "  feed             lê JSON de conhecimento estruturado do stdin e persiste",
     "                   (sem LLM: quem chama é o extrator; embeddings locais adicionados)",
   ].join("\n"),
+  reviewMemoryHeader: (total, showing) =>
+    showing !== null
+      ? `${total} regra(s) aguardando confirmação do QA (exibindo ${showing}):`
+      : `${total} regra(s) aguardando confirmação do QA:`,
+  reviewMemoryUnderReview: "EM REVISÃO",
+  reviewMemoryFooter:
+    "Para promover: confirme com o usuário, depois chame update_rule com o rule_id (fixa como confirmado pelo QA, confiança 1.00).",
+  reviewMemoryEmpty: "Nada aguardando confirmação — todas as regras estão confirmadas pelo QA.",
   promptGettingStartedTitle: "Primeiros passos com qa-memory",
   promptGettingStartedDesc: "Saiba o que é qa-memory e qual o primeiro passo.",
   promptAssessChangeTitle: "Avaliar uma mudança antes de testar",

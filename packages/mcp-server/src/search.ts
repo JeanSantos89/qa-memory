@@ -14,10 +14,17 @@ import type { Embedder } from "./embedder.js";
 import type { Translator } from "./translator.js";
 import { cosineSimilarity, unpackVector } from "./embeddings.js";
 
-// Below this cosine score a behavior is treated as unrelated (avoids dumping
-// the whole DB on every query). Tuned conservatively; all-MiniLM scores
-// related-but-not-identical text well above this.
-const SEMANTIC_FLOOR = 0.25;
+// Below this cosine score a behavior is treated as unrelated. Override via
+// QA_MEMORY_SEMANTIC_FLOOR env var (e.g. "0.3" for stricter matching).
+// Read each call so tests and runtime config changes take effect without restart.
+function semanticFloor(): number {
+  const raw = process.env.QA_MEMORY_SEMANTIC_FLOOR;
+  if (raw) {
+    const v = parseFloat(raw);
+    if (!isNaN(v) && v >= 0 && v <= 1) return v;
+  }
+  return 0.25;
+}
 
 // Hybrid search: semantic hits (ranked by cosine) first, then any LIKE matches
 // not already surfaced, capped at `limit`. Falls back to pure LIKE when there
@@ -59,7 +66,7 @@ export async function searchBehaviors(
       behavior,
       score: cosineSimilarity(queryVec, unpackVector(vector)),
     }))
-    .filter((r) => r.score >= SEMANTIC_FLOOR)
+    .filter((r) => r.score >= semanticFloor())
     .sort((a, b) => b.score - a.score);
 
   // Semantic order first; backfill with lexical matches not already present.
@@ -89,7 +96,7 @@ export async function searchBehaviors(
           behavior_id,
           score: cosineSimilarity(queryVec, unpackVector(vector)),
         }))
-        .filter((r) => r.score >= SEMANTIC_FLOOR && !seen.has(r.behavior_id))
+        .filter((r) => r.score >= semanticFloor() && !seen.has(r.behavior_id))
         .sort((a, b) => b.score - a.score)
         .map((r) => r.behavior_id);
 
